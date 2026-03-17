@@ -2,3 +2,5 @@ aiogram
 python-dotenv
 fpdf2
 Pillow
+gspread
+google-auth
