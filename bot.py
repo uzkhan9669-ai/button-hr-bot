@@ -169,7 +169,7 @@ def schedule_kb() -> ReplyKeyboardMarkup:
 
 def external_cv_kb() -> ReplyKeyboardMarkup:
     return make_kb([
-        ["⏭ O'tkazib yuborish"],
+        ["Roziman ✅"],
         ACTION_ROW,
     ])
 
@@ -208,7 +208,15 @@ def sanitize_pdf_text(value: str) -> str:
 
 def find_font_path() -> str:
     candidates = [
+        "DejaVuSansBold.ttf",
+        "DejaVuSans.ttf",
+        "/app/DejaVuSansBold.ttf",
+        "/app/DejaVuSans.ttf",
+        "/workspace/DejaVuSansBold.ttf",
+        "/workspace/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans.ttf",
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/calibri.ttf",
@@ -216,7 +224,9 @@ def find_font_path() -> str:
     for path in candidates:
         if Path(path).exists():
             return path
-    raise FileNotFoundError("Unicode shrift topilmadi.")
+    raise FileNotFoundError(
+        "Unicode shrift topilmadi. GitHub ga DejaVuSansBold.ttf yoki DejaVuSans.ttf yuklang."
+    )
 
 
 def create_candidate_pdf(data: dict, photo_path: str | None) -> str:
@@ -303,7 +313,8 @@ async def ask_step(message: Message, field: str):
         await message.answer("📸 Iltimos, o'zingizning rasmingizni yuboring.\nYuzingiz aniq ko'rinadigan bo'lsin.", reply_markup=action_kb())
     elif field == "external_cv":
         await message.answer(
-            "📄 Agar tayyor CV'ingiz bo'lsa, PDF formatda yuboring.\nAgar yo'q bo'lsa, pastdagi tugmani bosing.",
+            "📄 Agar tayyor CV'ingiz bo'lsa, PDF formatda yuboring.\n"
+            "Agar yubormasangiz, pastdagi tugmani bosing.",
             reply_markup=external_cv_kb()
         )
 
@@ -549,7 +560,7 @@ async def process_external_cv(message: Message, state: FSMContext):
     await finish_flow(message, state)
 
 
-@dp.message(StateFilter(Form.external_cv), F.text == "⏭ O'tkazib yuborish")
+@dp.message(StateFilter(Form.external_cv), F.text == "Roziman ✅")
 async def skip_external_cv(message: Message, state: FSMContext):
     await finish_flow(message, state)
 
@@ -557,7 +568,7 @@ async def skip_external_cv(message: Message, state: FSMContext):
 @dp.message(StateFilter(Form.external_cv))
 async def external_cv_required(message: Message):
     await message.answer(
-        "📄 Iltimos, PDF fayl yuboring yoki ⏭ O'tkazib yuborish tugmasini bosing.",
+        "📄 Iltimos, PDF fayl yuboring yoki Roziman ✅ tugmasini bosing.",
         reply_markup=external_cv_kb()
     )
 
