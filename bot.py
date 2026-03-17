@@ -15,6 +15,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardRemove,
+    FSInputFile,
 )
 from dotenv import load_dotenv
 from fpdf import FPDF
@@ -56,58 +57,118 @@ class Form(StatesGroup):
     photo = State()
 
 
-def start_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="✅ Anketani boshlash")]
-        ],
-        resize_keyboard=True
-    )
+STATE_ORDER = [
+    "full_name",
+    "age",
+    "phone",
+    "position",
+    "branch",
+    "experience",
+    "experience_text",
+    "schedule",
+    "salary",
+    "start_date",
+    "comment",
+    "photo",
+]
+
+POSITIONS = [
+    "Sotuvchi-maslahatchi",
+    "Kassir",
+    "Skladovshik",
+    "Qo'riqchi",
+]
+
+BRANCHES = [
+    "Risoviy bozor - Magnit",
+    "Chilonzor - Andalus",
+    "Beruniy - Korzinka",
+    "Shayxontohur - Makon",
+    "Farqi yo'q",
+]
+
+EXPERIENCE_OPTIONS = [
+    "Ha",
+    "Yo'q",
+]
+
+SCHEDULES = [
+    "To'liq smena",
+    "Faqat kunduzgi",
+    "Faqat kechki",
+    "Moslashuvchan",
+]
+
+STATE_TO_ATTR = {
+    "full_name": Form.full_name,
+    "age": Form.age,
+    "phone": Form.phone,
+    "position": Form.position,
+    "branch": Form.branch,
+    "experience": Form.experience,
+    "experience_text": Form.experience_text,
+    "schedule": Form.schedule,
+    "salary": Form.salary,
+    "start_date": Form.start_date,
+    "comment": Form.comment,
+    "photo": Form.photo,
+}
+
+ACTION_ROW = ["⬅️ Orqaga", "❌ Bekor qilish", "🔄 Qaytadan boshlash"]
 
 
-def position_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="👔 Sotuvchi-maslahatchi")],
-            [KeyboardButton(text="💰 Kassir")],
-            [KeyboardButton(text="📦 Skladovshik")],
-            [KeyboardButton(text="🛡 Qo'riqchi")]
-        ],
-        resize_keyboard=True
-    )
+def build_keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
+    keyboard = [[KeyboardButton(text=item) for item in row] for row in rows]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def branch_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🏬 Risoviy bozor - Magnit")],
-            [KeyboardButton(text="🏬 Chilonzor - Andalus")],
-            [KeyboardButton(text="🏬 Beruniy - Korzinka")],
-            [KeyboardButton(text="🏬 Shayxontohur - Makon")],
-            [KeyboardButton(text="🔄 Farqi yo'q")]
-        ],
-        resize_keyboard=True
-    )
+def start_keyboard() -> ReplyKeyboardMarkup:
+    return build_keyboard([["✅ Anketani boshlash"]])
 
 
-def yes_no_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="✅ Ha"), KeyboardButton(text="❌ Yo'q")]
-        ],
-        resize_keyboard=True
-    )
+def action_only_keyboard() -> ReplyKeyboardMarkup:
+    return build_keyboard([ACTION_ROW])
 
 
-def schedule_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🕘 To'liq smena")],
-            [KeyboardButton(text="🌅 Faqat kunduzgi"), KeyboardButton(text="🌙 Faqat kechki")],
-            [KeyboardButton(text="🔄 Moslashuvchan")]
-        ],
-        resize_keyboard=True
-    )
+def position_keyboard() -> ReplyKeyboardMarkup:
+    return build_keyboard([
+        ["Sotuvchi-maslahatchi", "Kassir"],
+        ["Skladovshik", "Qo'riqchi"],
+        ACTION_ROW,
+    ])
+
+
+def branch_keyboard() -> ReplyKeyboardMarkup:
+    return build_keyboard([
+        ["Risoviy bozor - Magnit"],
+        ["Chilonzor - Andalus"],
+        ["Beruniy - Korzinka"],
+        ["Shayxontohur - Makon"],
+        ["Farqi yo'q"],
+        ACTION_ROW,
+    ])
+
+
+def yes_no_keyboard() -> ReplyKeyboardMarkup:
+    return build_keyboard([
+        ["Ha", "Yo'q"],
+        ACTION_ROW,
+    ])
+
+
+def schedule_keyboard() -> ReplyKeyboardMarkup:
+    return build_keyboard([
+        ["To'liq smena"],
+        ["Faqat kunduzgi", "Faqat kechki"],
+        ["Moslashuvchan"],
+        ACTION_ROW,
+    ])
+
+
+def state_name(full_state: str | None) -> str | None:
+    if not full_state:
+        return None
+    return full_state.split(":")[-1]
 
 
 def clean_filename(text: str) -> str:
@@ -115,30 +176,66 @@ def clean_filename(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9_]+", "", text) or "candidate"
 
 
-def create_candidate_pdf(data: dict, photo_path: str) -> str:
-    candidate_name = data.get("full_name", "candidate")
+def find_font_path() -> str:
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/calibri.ttf",
+    ]
+    for path in candidates:
+        if Path(path).exists():
+            return path
+    raise FileNotFoundError("Unicode shrift topilmadi.")
+
+
+def sanitize_pdf_text(value: str) -> str:
+    if value is None:
+        return "-"
+    text = str(value)
+
+    replacements = {
+        "’": "'",
+        "‘": "'",
+        "ʻ": "'",
+        "ʼ": "'",
+        "“": '"',
+        "”": '"',
+        "—": "-",
+        "–": "-",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # emoji va nazorat belgilarini olib tashlaydi
+    text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
+    text = "".join(ch for ch in text if ch.isprintable())
+    return text.strip() or "-"
+
+
+def create_candidate_pdf(data: dict, photo_path: str | None) -> str:
+    candidate_name = sanitize_pdf_text(data.get("full_name", "candidate"))
     safe_name = clean_filename(candidate_name)
     pdf_path = TMP_DIR / f"CV_{safe_name}.pdf"
+
+    font_path = find_font_path()
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
+    pdf.add_font("Custom", "", font_path)
+    pdf.set_font("Custom", size=15)
 
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, "BUTTON CV", ln=True, align="C")
-    pdf.ln(4)
+    pdf.cell(0, 10, "BUTTON CV", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.ln(3)
 
     if photo_path and Path(photo_path).exists():
         try:
-            pdf.image(photo_path, x=150, y=20, w=35)
+            pdf.image(photo_path, x=150, y=18, w=35)
         except Exception:
             pass
 
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Nomzod haqida ma'lumot", ln=True)
-    pdf.ln(2)
-
-    pdf.set_font("Helvetica", size=11)
+    pdf.set_font("Custom", size=11)
 
     rows = [
         ("Ism familiya", data.get("full_name", "-")),
@@ -157,12 +254,8 @@ def create_candidate_pdf(data: dict, photo_path: str) -> str:
     ]
 
     for label, value in rows:
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.multi_cell(55, 8, f"{label}: ", border=0)
-        y_before = pdf.get_y()
-        pdf.set_xy(65, y_before - 8)
-        pdf.set_font("Helvetica", size=11)
-        pdf.multi_cell(0, 8, str(value), border=0)
+        line = f"{sanitize_pdf_text(label)}: {sanitize_pdf_text(value)}"
+        pdf.multi_cell(0, 8, line)
         pdf.ln(1)
 
     pdf.output(str(pdf_path))
@@ -171,13 +264,83 @@ def create_candidate_pdf(data: dict, photo_path: str) -> str:
 
 async def download_candidate_photo(message: Message, full_name: str) -> str:
     photo = message.photo[-1]
-    file = await bot.get_file(photo.file_id)
+    tg_file = await bot.get_file(photo.file_id)
 
     safe_name = clean_filename(full_name)
     photo_path = TMP_DIR / f"{safe_name}_photo.jpg"
 
-    await bot.download_file(file.file_path, destination=photo_path)
+    await bot.download_file(tg_file.file_path, destination=photo_path)
     return str(photo_path)
+
+
+async def send_prompt(message: Message, field: str):
+    if field == "full_name":
+        await message.answer(
+            "👤 Ism va familiyangizni yozing:",
+            reply_markup=action_only_keyboard()
+        )
+    elif field == "age":
+        await message.answer(
+            "🎂 Yoshingiz nechida?",
+            reply_markup=action_only_keyboard()
+        )
+    elif field == "phone":
+        await message.answer(
+            "📱 Telefon raqamingizni yozing:\nMasalan: +998901234567",
+            reply_markup=action_only_keyboard()
+        )
+    elif field == "position":
+        await message.answer(
+            "💼 Qaysi lavozimda ishlamoqchisiz?",
+            reply_markup=position_keyboard()
+        )
+    elif field == "branch":
+        await message.answer(
+            "📍 Qaysi filial yoki hudud sizga qulay?",
+            reply_markup=branch_keyboard()
+        )
+    elif field == "experience":
+        await message.answer(
+            "⭐ Shu lavozim bo'yicha ish tajribangiz bormi?",
+            reply_markup=yes_no_keyboard()
+        )
+    elif field == "experience_text":
+        await message.answer(
+            "🧠 Tajribangiz haqida qisqacha yozing.\n"
+            "Agar bo'lmasa: yo'q deb yozing.",
+            reply_markup=action_only_keyboard()
+        )
+    elif field == "schedule":
+        await message.answer(
+            "🕒 Qaysi ish grafigi sizga qulay?",
+            reply_markup=schedule_keyboard()
+        )
+    elif field == "salary":
+        await message.answer(
+            "💰 Kutilayotgan oylik maoshingiz qancha?",
+            reply_markup=action_only_keyboard()
+        )
+    elif field == "start_date":
+        await message.answer(
+            "🚀 Qachondan ish boshlay olasiz?",
+            reply_markup=action_only_keyboard()
+        )
+    elif field == "comment":
+        await message.answer(
+            "💬 Qo'shimcha ma'lumot yoki izoh bo'lsa yozing.\nBo'lmasa: yo'q",
+            reply_markup=action_only_keyboard()
+        )
+    elif field == "photo":
+        await message.answer(
+            "📸 Iltimos, o'zingizning rasmingizni yuboring.\n"
+            "Yuzingiz aniq ko'rinadigan bo'lsin.",
+            reply_markup=action_only_keyboard()
+        )
+
+
+async def go_to_state(message: Message, state: FSMContext, field: str):
+    await state.set_state(STATE_TO_ATTR[field])
+    await send_prompt(message, field)
 
 
 @dp.message(CommandStart())
@@ -193,115 +356,49 @@ async def start_cmd(message: Message, state: FSMContext):
 
 @dp.message(F.text == "✅ Anketani boshlash")
 async def start_form(message: Message, state: FSMContext):
-    await state.set_state(Form.full_name)
+    await state.clear()
+    await go_to_state(message, state, "full_name")
+
+
+@dp.message(F.text == "🔄 Qaytadan boshlash")
+async def restart_form(message: Message, state: FSMContext):
+    await state.clear()
     await message.answer(
-        "👤 Ism va familiyangizni yozing:",
+        "🔄 Anketa boshidan boshlandi.",
         reply_markup=ReplyKeyboardRemove()
+    )
+    await go_to_state(message, state, "full_name")
+
+
+@dp.message(F.text == "❌ Bekor qilish")
+async def cancel_form(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "❌ Anketa bekor qilindi.",
+        reply_markup=start_keyboard()
     )
 
 
-@dp.message(Form.full_name)
-async def get_name(message: Message, state: FSMContext):
-    await state.update_data(full_name=message.text.strip())
-    await state.set_state(Form.age)
-    await message.answer("🎂 Yoshingiz nechida?")
+@dp.message(F.text == "⬅️ Orqaga")
+async def back_form(message: Message, state: FSMContext):
+    current_full = await state.get_state()
+    current = state_name(current_full)
 
-
-@dp.message(Form.age)
-async def get_age(message: Message, state: FSMContext):
-    age = message.text.strip()
-    if not age.isdigit():
-        await message.answer("⚠️ Iltimos, yoshni raqam bilan kiriting. Masalan: 22")
+    if not current:
+        await message.answer("Siz hozir anketada emassiz.", reply_markup=start_keyboard())
         return
 
-    await state.update_data(age=age)
-    await state.set_state(Form.phone)
-    await message.answer("📱 Telefon raqamingizni yozing:\nMasalan: +998901234567")
+    idx = STATE_ORDER.index(current)
+    if idx == 0:
+        await state.clear()
+        await message.answer(
+            "Siz boshiga qaytdingiz.",
+            reply_markup=start_keyboard()
+        )
+        return
 
-
-@dp.message(Form.phone)
-async def get_phone(message: Message, state: FSMContext):
-    await state.update_data(phone=message.text.strip())
-    await state.set_state(Form.position)
-    await message.answer(
-        "💼 Qaysi lavozimda ishlamoqchisiz?",
-        reply_markup=position_keyboard()
-    )
-
-
-@dp.message(Form.position)
-async def get_position(message: Message, state: FSMContext):
-    await state.update_data(position=message.text.strip())
-    await state.set_state(Form.branch)
-    await message.answer(
-        "📍 Qaysi filial yoki hudud sizga qulay?",
-        reply_markup=branch_keyboard()
-    )
-
-
-@dp.message(Form.branch)
-async def get_branch(message: Message, state: FSMContext):
-    await state.update_data(branch=message.text.strip())
-    await state.set_state(Form.experience)
-    await message.answer(
-        "⭐ Shu lavozim bo'yicha ish tajribangiz bormi?",
-        reply_markup=yes_no_keyboard()
-    )
-
-
-@dp.message(Form.experience)
-async def get_experience(message: Message, state: FSMContext):
-    await state.update_data(experience=message.text.strip())
-    await state.set_state(Form.experience_text)
-    await message.answer(
-        "🧠 Tajribangiz haqida qisqacha yozing.\n"
-        "Agar bo'lmasa: yo'q deb yozing.",
-        reply_markup=ReplyKeyboardRemove()
-    )
-
-
-@dp.message(Form.experience_text)
-async def get_experience_text(message: Message, state: FSMContext):
-    await state.update_data(experience_text=message.text.strip())
-    await state.set_state(Form.schedule)
-    await message.answer(
-        "🕒 Qaysi ish grafigi sizga qulay?",
-        reply_markup=schedule_keyboard()
-    )
-
-
-@dp.message(Form.schedule)
-async def get_schedule(message: Message, state: FSMContext):
-    await state.update_data(schedule=message.text.strip())
-    await state.set_state(Form.salary)
-    await message.answer(
-        "💰 Kutilayotgan oylik maoshingiz qancha?",
-        reply_markup=ReplyKeyboardRemove()
-    )
-
-
-@dp.message(Form.salary)
-async def get_salary(message: Message, state: FSMContext):
-    await state.update_data(salary=message.text.strip())
-    await state.set_state(Form.start_date)
-    await message.answer("🚀 Qachondan ish boshlay olasiz?")
-
-
-@dp.message(Form.start_date)
-async def get_start_date(message: Message, state: FSMContext):
-    await state.update_data(start_date=message.text.strip())
-    await state.set_state(Form.comment)
-    await message.answer("💬 Qo'shimcha ma'lumot yoki izoh bo'lsa yozing.\nBo'lmasa: yo'q")
-
-
-@dp.message(Form.comment)
-async def get_comment(message: Message, state: FSMContext):
-    await state.update_data(comment=message.text.strip())
-    await state.set_state(Form.photo)
-    await message.answer(
-        "📸 Iltimos, o'zingizning rasmingizni yuboring\n"
-        "(yuzingiz aniq ko'rinadigan bo'lsin)"
-    )
+    prev_field = STATE_ORDER[idx - 1]
+    await go_to_state(message, state, prev_field)
 
 
 @dp.message(Form.photo, F.photo)
@@ -311,13 +408,12 @@ async def get_photo(message: Message, state: FSMContext):
     telegram_username = message.from_user.username if message.from_user.username else "yoq"
     telegram_user_id = message.from_user.id
 
+    data["telegram_username"] = telegram_username
+    data["telegram_user_id"] = telegram_user_id
     await state.update_data(
         telegram_username=telegram_username,
         telegram_user_id=telegram_user_id
     )
-
-    data["telegram_username"] = telegram_username
-    data["telegram_user_id"] = telegram_user_id
 
     text = (
         "📥 <b>BUTTON | Yangi nomzod anketasi</b>\n\n"
@@ -338,10 +434,9 @@ async def get_photo(message: Message, state: FSMContext):
 
     await bot.send_message(chat_id=int(HR_CHAT_ID), text=text)
 
-    photo = message.photo[-1]
     await bot.send_photo(
         chat_id=int(HR_CHAT_ID),
-        photo=photo.file_id,
+        photo=message.photo[-1].file_id,
         caption=f"📸 Nomzod rasmi: {data.get('full_name')}"
     )
 
@@ -349,30 +444,126 @@ async def get_photo(message: Message, state: FSMContext):
         photo_path = await download_candidate_photo(message, data.get("full_name", "candidate"))
         pdf_path = create_candidate_pdf(data, photo_path)
 
-        with open(pdf_path, "rb") as pdf_file:
-            await bot.send_document(
-                chat_id=int(HR_CHAT_ID),
-                document=pdf_file,
-                caption=f"📄 Tayyor CV PDF: {data.get('full_name')}"
-            )
+        await bot.send_document(
+            chat_id=int(HR_CHAT_ID),
+            document=FSInputFile(pdf_path),
+            caption=f"📄 Tayyor CV PDF: {data.get('full_name')}"
+        )
     except Exception as e:
         await bot.send_message(
             chat_id=int(HR_CHAT_ID),
             text=f"⚠️ PDF yaratishda xatolik bo'ldi: {e}"
         )
 
+    await state.clear()
     await message.answer(
         "✅ Rahmat! Sizning anketa, rasm va CV PDF qabul qilindi.\n"
         "BUTTON HR jamoasi tez orada siz bilan bog'lanadi.",
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=start_keyboard()
     )
-
-    await state.clear()
 
 
 @dp.message(Form.photo)
 async def photo_required(message: Message):
-    await message.answer("📸 Iltimos, rasmni photo ko'rinishida yuboring.")
+    await message.answer(
+        "📸 Iltimos, rasmni photo ko'rinishida yuboring.",
+        reply_markup=action_only_keyboard()
+    )
+
+
+@dp.message(
+    Form.full_name
+    | Form.age
+    | Form.phone
+    | Form.position
+    | Form.branch
+    | Form.experience
+    | Form.experience_text
+    | Form.schedule
+    | Form.salary
+    | Form.start_date
+    | Form.comment
+)
+async def process_form_steps(message: Message, state: FSMContext):
+    current = state_name(await state.get_state())
+    if not current:
+        await message.answer("Xatolik yuz berdi. /start bosing.")
+        return
+
+    text = (message.text or "").strip()
+
+    if current == "full_name":
+        if len(text) < 3:
+            await message.answer("Iltimos, to'liq ism familiya yozing.")
+            return
+        await state.update_data(full_name=text)
+        await go_to_state(message, state, "age")
+        return
+
+    if current == "age":
+        if not text.isdigit():
+            await message.answer("Iltimos, yoshni raqam bilan kiriting. Masalan: 22")
+            return
+        await state.update_data(age=text)
+        await go_to_state(message, state, "phone")
+        return
+
+    if current == "phone":
+        await state.update_data(phone=text)
+        await go_to_state(message, state, "position")
+        return
+
+    if current == "position":
+        if text not in POSITIONS:
+            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=position_keyboard())
+            return
+        await state.update_data(position=text)
+        await go_to_state(message, state, "branch")
+        return
+
+    if current == "branch":
+        if text not in BRANCHES:
+            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=branch_keyboard())
+            return
+        await state.update_data(branch=text)
+        await go_to_state(message, state, "experience")
+        return
+
+    if current == "experience":
+        if text not in EXPERIENCE_OPTIONS:
+            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=yes_no_keyboard())
+            return
+        await state.update_data(experience=text)
+        await go_to_state(message, state, "experience_text")
+        return
+
+    if current == "experience_text":
+        await state.update_data(experience_text=text)
+        await go_to_state(message, state, "schedule")
+        return
+
+    if current == "schedule":
+        if text not in SCHEDULES:
+            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=schedule_keyboard())
+            return
+        await state.update_data(schedule=text)
+        await go_to_state(message, state, "salary")
+        return
+
+    if current == "salary":
+        await state.update_data(salary=text)
+        await go_to_state(message, state, "start_date")
+        return
+
+    if current == "start_date":
+        await state.update_data(start_date=text)
+        await go_to_state(message, state, "comment")
+        return
+
+    if current == "comment":
+        await state.update_data(comment=text)
+        await go_to_state(message, state, "photo")
+        return
 
 
 async def main():
