@@ -6,7 +6,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -17,7 +17,6 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
-
 from dotenv import load_dotenv
 from fpdf import FPDF
 
@@ -28,7 +27,6 @@ HR_CHAT_ID = os.getenv("HR_CHAT_ID", "").strip()
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN topilmadi. Railway Variables ni tekshiring.")
-
 if not HR_CHAT_ID:
     raise ValueError("HR_CHAT_ID topilmadi. Railway Variables ni tekshiring.")
 
@@ -120,8 +118,10 @@ ACTION_ROW = ["⬅️ Orqaga", "❌ Bekor qilish", "🔄 Qaytadan boshlash"]
 
 
 def make_kb(rows: list[list[str]]) -> ReplyKeyboardMarkup:
-    keyboard = [[KeyboardButton(text=x) for x in row] for row in rows]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=x) for x in row] for row in rows],
+        resize_keyboard=True,
+    )
 
 
 def start_kb() -> ReplyKeyboardMarkup:
@@ -201,7 +201,6 @@ def sanitize_pdf_text(value: str) -> str:
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
-
     text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
     text = "".join(ch for ch in text if ch.isprintable())
     return text.strip() or "-"
@@ -233,8 +232,8 @@ def create_candidate_pdf(data: dict, photo_path: str | None) -> str:
     pdf.add_font("Custom", "", font_path)
     pdf.set_font("Custom", size=15)
 
-    pdf.cell(0, 10, "BUTTON CV", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.ln(3)
+    pdf.cell(0, 10, "BUTTON CV", align="C")
+    pdf.ln(12)
 
     if photo_path and Path(photo_path).exists():
         try:
@@ -261,8 +260,7 @@ def create_candidate_pdf(data: dict, photo_path: str | None) -> str:
     ]
 
     for label, value in rows:
-        line = f"{sanitize_pdf_text(label)}: {sanitize_pdf_text(value)}"
-        pdf.multi_cell(0, 8, line)
+        pdf.multi_cell(0, 8, f"{sanitize_pdf_text(label)}: {sanitize_pdf_text(value)}")
         pdf.ln(1)
 
     pdf.output(str(pdf_path))
@@ -315,6 +313,15 @@ async def goto_step(message: Message, state: FSMContext, field: str):
     await ask_step(message, field)
 
 
+async def finish_flow(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "✅ Rahmat! Sizning anketa, rasm va CV ma'lumotlari qabul qilindi.\n"
+        "BUTTON HR jamoasi tez orada siz bilan bog'lanadi.",
+        reply_markup=start_kb()
+    )
+
+
 @dp.message(CommandStart())
 async def start_cmd(message: Message, state: FSMContext):
     await state.clear()
@@ -347,8 +354,7 @@ async def cancel_form(message: Message, state: FSMContext):
 
 @dp.message(F.text == "⬅️ Orqaga")
 async def back_form(message: Message, state: FSMContext):
-    current_full = await state.get_state()
-    current = get_state_name(current_full)
+    current = get_state_name(await state.get_state())
 
     if not current:
         await message.answer("Siz hozir anketada emassiz.", reply_markup=start_kb())
@@ -364,16 +370,102 @@ async def back_form(message: Message, state: FSMContext):
     await goto_step(message, state, prev_field)
 
 
-async def finish_flow(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer(
-        "✅ Rahmat! Sizning anketa, rasm va CV ma'lumotlari qabul qilindi.\n"
-        "BUTTON HR jamoasi tez orada siz bilan bog'lanadi.",
-        reply_markup=start_kb()
-    )
+@dp.message(StateFilter(Form.full_name))
+async def process_full_name(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if len(text) < 3:
+        await message.answer("Iltimos, to'liq ism familiya yozing.")
+        return
+    await state.update_data(full_name=text)
+    await goto_step(message, state, "age")
 
 
-@dp.message(Form.photo, F.photo)
+@dp.message(StateFilter(Form.age))
+async def process_age(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if not text.isdigit():
+        await message.answer("Iltimos, yoshni raqam bilan kiriting. Masalan: 22")
+        return
+    await state.update_data(age=text)
+    await goto_step(message, state, "phone")
+
+
+@dp.message(StateFilter(Form.phone))
+async def process_phone(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    await state.update_data(phone=text)
+    await goto_step(message, state, "position")
+
+
+@dp.message(StateFilter(Form.position))
+async def process_position(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if text not in POSITIONS:
+        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=position_kb())
+        return
+    await state.update_data(position=text)
+    await goto_step(message, state, "branch")
+
+
+@dp.message(StateFilter(Form.branch))
+async def process_branch(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if text not in BRANCHES:
+        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=branch_kb())
+        return
+    await state.update_data(branch=text)
+    await goto_step(message, state, "experience")
+
+
+@dp.message(StateFilter(Form.experience))
+async def process_experience(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if text not in EXPERIENCE_OPTIONS:
+        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=yes_no_kb())
+        return
+    await state.update_data(experience=text)
+    await goto_step(message, state, "experience_text")
+
+
+@dp.message(StateFilter(Form.experience_text))
+async def process_experience_text(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    await state.update_data(experience_text=text)
+    await goto_step(message, state, "schedule")
+
+
+@dp.message(StateFilter(Form.schedule))
+async def process_schedule(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if text not in SCHEDULES:
+        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=schedule_kb())
+        return
+    await state.update_data(schedule=text)
+    await goto_step(message, state, "salary")
+
+
+@dp.message(StateFilter(Form.salary))
+async def process_salary(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    await state.update_data(salary=text)
+    await goto_step(message, state, "start_date")
+
+
+@dp.message(StateFilter(Form.start_date))
+async def process_start_date(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    await state.update_data(start_date=text)
+    await goto_step(message, state, "comment")
+
+
+@dp.message(StateFilter(Form.comment))
+async def process_comment(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    await state.update_data(comment=text)
+    await goto_step(message, state, "photo")
+
+
+@dp.message(StateFilter(Form.photo), F.photo)
 async def process_photo(message: Message, state: FSMContext):
     data = await state.get_data()
 
@@ -431,11 +523,22 @@ async def process_photo(message: Message, state: FSMContext):
     await goto_step(message, state, "external_cv")
 
 
-@dp.message(Form.external_cv, F.document)
+@dp.message(StateFilter(Form.photo))
+async def photo_required(message: Message):
+    await message.answer(
+        "📸 Iltimos, rasmni photo ko'rinishida yuboring.",
+        reply_markup=action_kb()
+    )
+
+
+@dp.message(StateFilter(Form.external_cv), F.document)
 async def process_external_cv(message: Message, state: FSMContext):
     doc = message.document
     if not doc.file_name.lower().endswith(".pdf"):
-        await message.answer("Iltimos, faqat PDF fayl yuboring.", reply_markup=external_cv_kb())
+        await message.answer(
+            "Iltimos, faqat PDF fayl yuboring.",
+            reply_markup=external_cv_kb()
+        )
         return
 
     await bot.send_document(
@@ -446,120 +549,17 @@ async def process_external_cv(message: Message, state: FSMContext):
     await finish_flow(message, state)
 
 
-@dp.message(Form.external_cv, F.text == "⏭ O'tkazib yuborish")
+@dp.message(StateFilter(Form.external_cv), F.text == "⏭ O'tkazib yuborish")
 async def skip_external_cv(message: Message, state: FSMContext):
     await finish_flow(message, state)
 
 
-@dp.message(Form.photo)
-async def photo_required(message: Message):
-    await message.answer(
-        "📸 Iltimos, rasmni photo ko'rinishida yuboring.",
-        reply_markup=action_kb()
-    )
-
-
-@dp.message(Form.external_cv)
+@dp.message(StateFilter(Form.external_cv))
 async def external_cv_required(message: Message):
     await message.answer(
         "📄 Iltimos, PDF fayl yuboring yoki ⏭ O'tkazib yuborish tugmasini bosing.",
         reply_markup=external_cv_kb()
     )
-
-
-@dp.message(
-    Form.full_name,
-    Form.age,
-    Form.phone,
-    Form.position,
-    Form.branch,
-    Form.experience,
-    Form.experience_text,
-    Form.schedule,
-    Form.salary,
-    Form.start_date,
-    Form.comment,
-)
-async def process_steps(message: Message, state: FSMContext):
-    current = get_state_name(await state.get_state())
-    if not current:
-        await message.answer("Xatolik yuz berdi. /start bosing.")
-        return
-
-    text = (message.text or "").strip()
-
-    if current == "full_name":
-        if len(text) < 3:
-            await message.answer("Iltimos, to'liq ism familiya yozing.")
-            return
-        await state.update_data(full_name=text)
-        await goto_step(message, state, "age")
-        return
-
-    if current == "age":
-        if not text.isdigit():
-            await message.answer("Iltimos, yoshni raqam bilan kiriting. Masalan: 22")
-            return
-        await state.update_data(age=text)
-        await goto_step(message, state, "phone")
-        return
-
-    if current == "phone":
-        await state.update_data(phone=text)
-        await goto_step(message, state, "position")
-        return
-
-    if current == "position":
-        if text not in POSITIONS:
-            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=position_kb())
-            return
-        await state.update_data(position=text)
-        await goto_step(message, state, "branch")
-        return
-
-    if current == "branch":
-        if text not in BRANCHES:
-            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=branch_kb())
-            return
-        await state.update_data(branch=text)
-        await goto_step(message, state, "experience")
-        return
-
-    if current == "experience":
-        if text not in EXPERIENCE_OPTIONS:
-            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=yes_no_kb())
-            return
-        await state.update_data(experience=text)
-        await goto_step(message, state, "experience_text")
-        return
-
-    if current == "experience_text":
-        await state.update_data(experience_text=text)
-        await goto_step(message, state, "schedule")
-        return
-
-    if current == "schedule":
-        if text not in SCHEDULES:
-            await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=schedule_kb())
-            return
-        await state.update_data(schedule=text)
-        await goto_step(message, state, "salary")
-        return
-
-    if current == "salary":
-        await state.update_data(salary=text)
-        await goto_step(message, state, "start_date")
-        return
-
-    if current == "start_date":
-        await state.update_data(start_date=text)
-        await goto_step(message, state, "comment")
-        return
-
-    if current == "comment":
-        await state.update_data(comment=text)
-        await goto_step(message, state, "photo")
-        return
 
 
 async def main():
