@@ -760,7 +760,6 @@ async def document_photo_handler(message: Message):
         "Анкету отправить?",
         reply_markup=consent_keyboard()
     )
-    )
 
     if text in [RESTART_TEXT_RU, RESTART_TEXT_UZ]:
         reset_user(user_id)
