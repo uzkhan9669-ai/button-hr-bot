@@ -18,8 +18,8 @@ from reportlab.pdfgen import canvas
 # =========================
 # НАСТРОЙКИ
 # =========================
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-HR_CHAT_ID = -1001234567890  # ID HR чата / группы
+BOT_TOKEN = "8731952281:AAHlcIryCTRTF1ZBG11LFQdGfUv4mr29BgA"
+HR_CHAT_ID = -546403983  # ID HR чата / группы
 FONT_PATH = "DejaVuSans.ttf"  # Путь к шрифту для PDF
 FONT_NAME = "DejaVuSans"
 
