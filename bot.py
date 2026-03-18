@@ -1,582 +1,614 @@
-import asyncio
-import os
-import re
-from pathlib import Path
+import logging
+from aiogram import Bot, Dispatcher, executor, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart, StateFilter
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (
-    FSInputFile,
-    KeyboardButton,
-    Message,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
-)
-from dotenv import load_dotenv
-from fpdf import FPDF
+BOT_TOKEN = "YOUR_BOT_TOKEN"
+HR_CHAT_ID = -1001234567890  # сюда ID чата/группы HR
 
-load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-HR_CHAT_ID = os.getenv("HR_CHAT_ID", "").strip()
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+dp = Dispatcher(bot)
 
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN topilmadi. Railway Variables ni tekshiring.")
-if not HR_CHAT_ID:
-    raise ValueError("HR_CHAT_ID topilmadi. Railway Variables ni tekshiring.")
+# =========================
+# ХРАНЕНИЕ ДАННЫХ
+# =========================
+user_lang = {}
+user_data = {}
+user_step = {}
 
-HR_CHAT_ID = int(HR_CHAT_ID)
-
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
-dp = Dispatcher(storage=MemoryStorage())
-
-TMP_DIR = Path("/tmp/button_hr_bot")
-TMP_DIR.mkdir(parents=True, exist_ok=True)
-
-
-class Form(StatesGroup):
-    full_name = State()
-    age = State()
-    phone = State()
-    position = State()
-    branch = State()
-    experience = State()
-    experience_text = State()
-    schedule = State()
-    salary = State()
-    start_date = State()
-    comment = State()
-    photo = State()
-    external_cv = State()
-
-
-STEP_ORDER = [
-    "full_name",
-    "age",
-    "phone",
-    "position",
-    "branch",
-    "experience",
-    "experience_text",
-    "schedule",
-    "salary",
-    "start_date",
-    "comment",
-    "photo",
-    "external_cv",
-]
-
-STATE_MAP = {
-    "full_name": Form.full_name,
-    "age": Form.age,
-    "phone": Form.phone,
-    "position": Form.position,
-    "branch": Form.branch,
-    "experience": Form.experience,
-    "experience_text": Form.experience_text,
-    "schedule": Form.schedule,
-    "salary": Form.salary,
-    "start_date": Form.start_date,
-    "comment": Form.comment,
-    "photo": Form.photo,
-    "external_cv": Form.external_cv,
+# =========================
+# СПРАВОЧНИКИ
+# =========================
+stores = {
+    "Chilonzor — Andalus": {
+        "lat": 41.2756,
+        "lon": 69.2034,
+        "address_uz": "Toshkent shahri, Chilonzor tumani, Andalus savdo markazi, 2-qavat",
+        "address_ru": "г. Ташкент, Чиланзарский район, ТЦ Andalus, 2-этаж"
+    },
+    "Chilonzor — Integro": {
+        "lat": 41.2730,
+        "lon": 69.2050,
+        "address_uz": "Toshkent shahri, Chilonzor tumani, Integro savdo markazi",
+        "address_ru": "г. Ташкент, Чиланзарский район, ТЦ Integro"
+    },
+    "Risoviy bozor — Magnit": {
+        "lat": 41.2995,
+        "lon": 69.2401,
+        "address_uz": "Toshkent shahri, Mirzo Ulug‘bek tumani, Risoviy bozor, Magnit savdo markazi",
+        "address_ru": "г. Ташкент, Мирзо-Улугбекский район, Рисовый базар, ТЦ Magnit"
+    },
+    "Beruniy metro — Korzinka": {
+        "lat": 41.3447,
+        "lon": 69.2067,
+        "address_uz": "Toshkent shahri, Olmazor tumani, Beruniy metro yonida, Korzinka, 2-qavat",
+        "address_ru": "г. Ташкент, Алмазарский район, рядом с метро Beruniy, Korzinka, 2-этаж"
+    },
+    "Shaxriston — Korzinka": {
+        "lat": 41.3655,
+        "lon": 69.2922,
+        "address_uz": "Toshkent shahri, Yunusobod tumani, Shaxriston metro yonida, Korzinka, 2-qavat",
+        "address_ru": "г. Ташкент, Юнусабадский район, рядом с метро Shaxriston, Korzinka, 2-этаж"
+    },
+    "Shayxontohur — Makon supermarketi": {
+        "lat": 41.3112,
+        "lon": 69.2473,
+        "address_uz": "Toshkent shahri, Shayxontohur tumani, Zafarobod mahallasi, Makon supermarketi",
+        "address_ru": "г. Ташкент, Шайхантахурский район, махалля Zafarobod, супермаркет Makon"
+    },
+    "Ofis — Andalus Chilonzor": {
+        "lat": 41.2756,
+        "lon": 69.2034,
+        "address_uz": "Toshkent shahri, Chilonzor tumani, Andalus, BUTTON ofisi",
+        "address_ru": "г. Ташкент, Чиланзарский район, ТЦ Andalus, офис BUTTON"
+    }
 }
 
-POSITIONS = [
-    "Sotuvchi-maslahatchi",
-    "Kassir",
-    "Skladovshik",
-    "Qo'riqchi",
-]
+vacancy_to_stores = {
+    "Sotuvchi-maslahatchi": [
+        "Chilonzor — Andalus",
+        "Chilonzor — Integro",
+        "Risoviy bozor — Magnit",
+        "Beruniy metro — Korzinka",
+        "Shaxriston — Korzinka"
+    ],
+    "Kassir": [
+        "Chilonzor — Andalus",
+        "Chilonzor — Integro",
+        "Risoviy bozor — Magnit",
+        "Beruniy metro — Korzinka",
+        "Shaxriston — Korzinka"
+    ],
+    "Oxrana": [
+        "Chilonzor — Andalus",
+        "Chilonzor — Integro",
+        "Risoviy bozor — Magnit",
+        "Beruniy metro — Korzinka",
+        "Shaxriston — Korzinka",
+        "Shayxontohur — Makon supermarketi"
+    ],
+    "Tozalik hodimasi": [
+        "Chilonzor — Andalus",
+        "Chilonzor — Integro",
+        "Risoviy bozor — Magnit",
+        "Beruniy metro — Korzinka",
+        "Shaxriston — Korzinka"
+    ],
+    "Helper": [
+        "Chilonzor — Andalus",
+        "Chilonzor — Integro",
+        "Risoviy bozor — Magnit",
+        "Beruniy metro — Korzinka",
+        "Shaxriston — Korzinka"
+    ],
+    "Omborchi": [
+        "Shayxontohur — Makon supermarketi"
+    ],
+    "Rekruter": [
+        "Ofis — Andalus Chilonzor"
+    ],
+    "Kadrovik": [
+        "Ofis — Andalus Chilonzor"
+    ],
+    "SSM": [
+        "Ofis — Andalus Chilonzor"
+    ]
+}
 
-BRANCHES = [
-    "Risoviy bozor - Magnit",
-    "Chilonzor - Andalus",
-    "Beruniy - Korzinka",
-    "Shayxontohur - Makon",
-    "Farqi yo'q",
-]
+vacancy_map_ru_to_internal = {
+    "Продавец-консультант": "Sotuvchi-maslahatchi",
+    "Кассир": "Kassir",
+    "Охранник": "Oxrana",
+    "Сотрудник по уборке": "Tozalik hodimasi",
+    "Хелпер": "Helper",
+    "Кладовщик": "Omborchi",
+    "Рекрутер": "Rekruter",
+    "Кадровик": "Kadrovik",
+    "ССМ": "SSM"
+}
 
-EXPERIENCE_OPTIONS = ["Ha", "Yo'q"]
+vacancy_map_internal_to_ru = {
+    "Sotuvchi-maslahatchi": "Продавец-консультант",
+    "Kassir": "Кассир",
+    "Oxrana": "Охранник",
+    "Tozalik hodimasi": "Сотрудник по уборке",
+    "Helper": "Хелпер",
+    "Omborchi": "Кладовщик",
+    "Rekruter": "Рекрутер",
+    "Kadrovik": "Кадровик",
+    "SSM": "ССМ"
+}
 
-SCHEDULES = [
-    "To'liq smena",
-    "Faqat kunduzgi",
-    "Faqat kechki",
-    "Moslashuvchan",
-]
-
-ACTION_ROW = ["⬅️ Orqaga", "❌ Bekor qilish", "🔄 Qaytadan boshlash"]
-
-
-def make_kb(rows: list[list[str]]) -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=x) for x in row] for row in rows],
-        resize_keyboard=True,
-    )
-
-
-def start_kb() -> ReplyKeyboardMarkup:
-    return make_kb([["✅ Anketani boshlash"]])
-
-
-def action_kb() -> ReplyKeyboardMarkup:
-    return make_kb([ACTION_ROW])
-
-
-def position_kb() -> ReplyKeyboardMarkup:
-    return make_kb([
-        ["Sotuvchi-maslahatchi", "Kassir"],
-        ["Skladovshik", "Qo'riqchi"],
-        ACTION_ROW,
-    ])
-
-
-def branch_kb() -> ReplyKeyboardMarkup:
-    return make_kb([
-        ["Risoviy bozor - Magnit"],
-        ["Chilonzor - Andalus"],
-        ["Beruniy - Korzinka"],
-        ["Shayxontohur - Makon"],
-        ["Farqi yo'q"],
-        ACTION_ROW,
-    ])
-
-
-def yes_no_kb() -> ReplyKeyboardMarkup:
-    return make_kb([
-        ["Ha", "Yo'q"],
-        ACTION_ROW,
-    ])
-
-
-def schedule_kb() -> ReplyKeyboardMarkup:
-    return make_kb([
-        ["To'liq smena"],
-        ["Faqat kunduzgi", "Faqat kechki"],
-        ["Moslashuvchan"],
-        ACTION_ROW,
-    ])
-
-
-def external_cv_kb() -> ReplyKeyboardMarkup:
-    return make_kb([
-        ["Roziman ✅"],
-        ACTION_ROW,
-    ])
-
-
-def get_state_name(full_state: str | None) -> str | None:
-    if not full_state:
-        return None
-    return full_state.split(":")[-1]
-
-
-def clean_filename(text: str) -> str:
-    text = text.strip().replace(" ", "_")
-    return re.sub(r"[^A-Za-z0-9_]+", "", text) or "candidate"
-
-
-def sanitize_pdf_text(value: str) -> str:
-    if value is None:
-        return "-"
-    text = str(value)
-    replacements = {
-        "’": "'",
-        "‘": "'",
-        "ʻ": "'",
-        "ʼ": "'",
-        "“": '"',
-        "”": '"',
-        "—": "-",
-        "–": "-",
+TEXTS = {
+    "uz": {
+        "choose_lang": "🇺🇿 Tilni tanlang / 🇷🇺 Выберите язык",
+        "welcome": "BUTTON botiga xush kelibsiz!",
+        "choose_vacancy": "Vakansiyani tanlang:",
+        "choose_store": "Filialni tanlang:",
+        "location_question": "Shu filialda ishlash sizga qulaymi?",
+        "ask_name": "Ism va familiyangizni kiriting:",
+        "ask_phone": "Telefon raqamingizni yuboring:",
+        "ask_district": "Yashash hududingizni yozing:",
+        "ask_marital": "Oilaviy holatingizni tanlang:",
+        "ask_education": "Ma'lumotingizni tanlang:",
+        "ask_study": "Hozirda o‘qiyapsizmi?",
+        "ask_study_form": "Ta'lim shaklini tanlang:",
+        "ask_work_exp": "Oxirgi ish joyingiz yoki ish tajribangizni yozing:",
+        "ask_start_date": "Qachondan ish boshlay olasiz?",
+        "ask_photo": "📷 Iltimos, o‘zingizni rasmingizni yuboring",
+        "ask_consent": "✅ Kiritilgan ma’lumotlar to‘g‘riligini tasdiqlaysizmi va ularni qayta ishlashga rozimisiz?",
+        "done": "✅ Arizangiz qabul qilindi. Tez orada siz bilan bog‘lanamiz.",
+        "wrong_photo": "❌ Iltimos, faqat o‘zingizning rasmingizni yuboring.",
+        "location_sent": "📍 Siz tanlagan filial lokatsiyasi yuborildi.",
+        "yes_location": "Ha, qulay ✅",
+        "no_location": "Boshqa filial 🔄",
+        "consent": "Roziman ✅",
+        "restart": "Qayta boshlash 🔄",
+        "share_phone": "Telefon raqamni yuborish 📞",
+        "marital_options": [
+            "Uylanmagan / Turmushga chiqmagan",
+            "Uylangan / Turmushga chiqqan",
+            "Ajrashgan",
+            "Beva"
+        ],
+        "education_options": [
+            "O‘rta maktab",
+            "Kollej / Texnikum",
+            "Institut / Universitet"
+        ],
+        "study_options": ["Ha", "Yo‘q"],
+        "study_form_options": ["Kunduzgi", "Sirtqi", "Kechki"]
+    },
+    "ru": {
+        "choose_lang": "🇺🇿 Tilni tanlang / 🇷🇺 Выберите язык",
+        "welcome": "Добро пожаловать в бот BUTTON!",
+        "choose_vacancy": "Выберите вакансию:",
+        "choose_store": "Выберите филиал:",
+        "location_question": "Вам удобно работать в этом филиале?",
+        "ask_name": "Введите имя и фамилию:",
+        "ask_phone": "Отправьте номер телефона:",
+        "ask_district": "Напишите район проживания:",
+        "ask_marital": "Выберите семейное положение:",
+        "ask_education": "Укажите образование:",
+        "ask_study": "Вы сейчас учитесь?",
+        "ask_study_form": "Выберите форму обучения:",
+        "ask_work_exp": "Напишите последнее место работы или опыт работы:",
+        "ask_start_date": "С какого дня готовы выйти на работу?",
+        "ask_photo": "📷 Пожалуйста, отправьте своё фото",
+        "ask_consent": "✅ Подтверждаете правильность данных и согласны на их обработку?",
+        "done": "✅ Ваша анкета принята. Скоро с вами свяжутся.",
+        "wrong_photo": "❌ Пожалуйста, отправьте только своё фото.",
+        "location_sent": "📍 Локация выбранного филиала отправлена.",
+        "yes_location": "Да, удобно ✅",
+        "no_location": "Выбрать другой 🔄",
+        "consent": "Согласен ✅",
+        "restart": "Начать заново 🔄",
+        "share_phone": "Отправить номер 📞",
+        "marital_options": [
+            "Холост / Не замужем",
+            "Женат / Замужем",
+            "Разведён / Разведена",
+            "Вдовец / Вдова"
+        ],
+        "education_options": [
+            "Средняя школа",
+            "Колледж / Техникум",
+            "Институт / Университет"
+        ],
+        "study_options": ["Да", "Нет"],
+        "study_form_options": ["Очная", "Заочная", "Вечерняя"]
     }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
-    text = "".join(ch for ch in text if ch.isprintable())
-    return text.strip() or "-"
+}
 
+# =========================
+# КЛАВИАТУРЫ
+# =========================
+def lang_keyboard():
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton("🇺🇿 O‘zbekcha"))
+    kb.add(KeyboardButton("🇷🇺 Русский"))
+    return kb
 
-def find_font_path() -> str:
-    candidates = [
-        "DejaVuSansBold.ttf",
-        "DejaVuSans.ttf",
-        "/app/DejaVuSansBold.ttf",
-        "/app/DejaVuSans.ttf",
-        "/workspace/DejaVuSansBold.ttf",
-        "/workspace/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/calibri.ttf",
-    ]
-    for path in candidates:
-        if Path(path).exists():
-            return path
-    raise FileNotFoundError(
-        "Unicode shrift topilmadi. GitHub ga DejaVuSansBold.ttf yoki DejaVuSans.ttf yuklang."
-    )
+def vacancy_keyboard(lang):
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    if lang == "uz":
+        buttons = [
+            "Sotuvchi-maslahatchi",
+            "Kassir",
+            "Oxrana",
+            "Tozalik hodimasi",
+            "Helper",
+            "Omborchi",
+            "Rekruter",
+            "Kadrovik",
+            "SSM"
+        ]
+    else:
+        buttons = [
+            "Продавец-консультант",
+            "Кассир",
+            "Охранник",
+            "Сотрудник по уборке",
+            "Хелпер",
+            "Кладовщик",
+            "Рекрутер",
+            "Кадровик",
+            "ССМ"
+        ]
+    for btn in buttons:
+        kb.add(KeyboardButton(btn))
+    return kb
 
+def store_keyboard(store_list, lang):
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    for store in store_list:
+        kb.add(KeyboardButton(store))
+    kb.add(KeyboardButton(TEXTS[lang]["restart"]))
+    return kb
 
-def create_candidate_pdf(data: dict, photo_path: str | None) -> str:
-    candidate_name = sanitize_pdf_text(data.get("full_name", "candidate"))
-    safe_name = clean_filename(candidate_name)
-    pdf_path = TMP_DIR / f"CV_{safe_name}.pdf"
+def location_confirm_keyboard(lang):
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton(TEXTS[lang]["yes_location"]))
+    kb.add(KeyboardButton(TEXTS[lang]["no_location"]))
+    return kb
 
-    font_path = find_font_path()
+def phone_keyboard(lang):
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton(TEXTS[lang]["share_phone"], request_contact=True))
+    return kb
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.add_font("Custom", "", font_path)
-    pdf.set_font("Custom", size=15)
+def options_keyboard(options):
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    for item in options:
+        kb.add(KeyboardButton(item))
+    return kb
 
-    pdf.cell(0, 10, "BUTTON CV", align="C")
-    pdf.ln(12)
+def consent_keyboard(lang):
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton(TEXTS[lang]["consent"]))
+    kb.add(KeyboardButton(TEXTS[lang]["restart"]))
+    return kb
 
-    if photo_path and Path(photo_path).exists():
-        try:
-            pdf.image(photo_path, x=155, y=18, w=30)
-        except Exception:
-            pass
+# =========================
+# ВСПОМОГАТЕЛЬНЫЕ
+# =========================
+def reset_user(user_id):
+    user_data[user_id] = {}
+    user_step[user_id] = "choose_lang"
 
-    pdf.set_font("Custom", size=11)
+def get_lang(user_id):
+    return user_lang.get(user_id, "uz")
 
-    rows = [
-        ("Ism familiya", data.get("full_name", "-")),
-        ("Yoshi", data.get("age", "-")),
-        ("Telefon", data.get("phone", "-")),
-        ("Lavozim", data.get("position", "-")),
-        ("Filial", data.get("branch", "-")),
-        ("Tajriba bormi", data.get("experience", "-")),
-        ("Tajriba haqida", data.get("experience_text", "-")),
-        ("Qulay grafik", data.get("schedule", "-")),
-        ("Kutilayotgan maosh", data.get("salary", "-")),
-        ("Ish boshlash vaqti", data.get("start_date", "-")),
-        ("Izoh", data.get("comment", "-")),
-        ("Telegram ID", str(data.get("telegram_user_id", "-"))),
-        ("Telegram username", data.get("telegram_username", "-")),
-    ]
-
-    for label, value in rows:
-        pdf.multi_cell(0, 8, f"{sanitize_pdf_text(label)}: {sanitize_pdf_text(value)}")
-        pdf.ln(1)
-
-    pdf.output(str(pdf_path))
-    return str(pdf_path)
-
-
-async def download_candidate_photo(message: Message, full_name: str) -> str:
-    photo = message.photo[-1]
-    tg_file = await bot.get_file(photo.file_id)
-    safe_name = clean_filename(full_name)
-    photo_path = TMP_DIR / f"{safe_name}_photo.jpg"
-    await bot.download_file(tg_file.file_path, destination=photo_path)
-    return str(photo_path)
-
-
-async def ask_step(message: Message, field: str):
-    if field == "full_name":
-        await message.answer("👤 Ism va familiyangizni yozing:", reply_markup=action_kb())
-    elif field == "age":
-        await message.answer("🎂 Yoshingiz nechida?", reply_markup=action_kb())
-    elif field == "phone":
-        await message.answer("📱 Telefon raqamingizni yozing:\nMasalan: +998901234567", reply_markup=action_kb())
-    elif field == "position":
-        await message.answer("💼 Qaysi lavozimda ishlamoqchisiz?", reply_markup=position_kb())
-    elif field == "branch":
-        await message.answer("📍 Qaysi filial yoki hudud sizga qulay?", reply_markup=branch_kb())
-    elif field == "experience":
-        await message.answer("⭐ Shu lavozim bo'yicha ish tajribangiz bormi?", reply_markup=yes_no_kb())
-    elif field == "experience_text":
-        await message.answer("🧠 Tajribangiz haqida qisqacha yozing.\nAgar bo'lmasa: yo'q deb yozing.", reply_markup=action_kb())
-    elif field == "schedule":
-        await message.answer("🕒 Qaysi ish grafigi sizga qulay?", reply_markup=schedule_kb())
-    elif field == "salary":
-        await message.answer("💰 Kutilayotgan oylik maoshingiz qancha?", reply_markup=action_kb())
-    elif field == "start_date":
-        await message.answer("🚀 Qachondan ish boshlay olasiz?", reply_markup=action_kb())
-    elif field == "comment":
-        await message.answer("💬 Qo'shimcha ma'lumot yoki izoh bo'lsa yozing.\nBo'lmasa: yo'q", reply_markup=action_kb())
-    elif field == "photo":
-        await message.answer("📸 Iltimos, o'zingizning rasmingizni yuboring.\nYuzingiz aniq ko'rinadigan bo'lsin.", reply_markup=action_kb())
-    elif field == "external_cv":
-        await message.answer(
-            "📄 Agar tayyor CV'ingiz bo'lsa, PDF formatda yuboring.\n"
-            "Agar yubormasangiz, pastdagi tugmani bosing.",
-            reply_markup=external_cv_kb()
-        )
-
-
-async def goto_step(message: Message, state: FSMContext, field: str):
-    await state.set_state(STATE_MAP[field])
-    await ask_step(message, field)
-
-
-async def finish_flow(message: Message, state: FSMContext):
-    await state.clear()
+async def send_vacancy_menu(message: types.Message, user_id: int):
+    lang = get_lang(user_id)
+    user_step[user_id] = "choose_vacancy"
     await message.answer(
-        "✅ Rahmat! Sizning anketa, rasm va CV ma'lumotlari qabul qilindi.\n"
-        "BUTTON HR jamoasi tez orada siz bilan bog'lanadi.",
-        reply_markup=start_kb()
+        f"{TEXTS[lang]['welcome']}\n\n{TEXTS[lang]['choose_vacancy']}",
+        reply_markup=vacancy_keyboard(lang)
     )
 
+async def send_store_menu(message: types.Message, user_id: int):
+    lang = get_lang(user_id)
+    vacancy = user_data[user_id]["vacancy"]
+    available_stores = vacancy_to_stores.get(vacancy, [])
+    user_step[user_id] = "choose_store"
+    await message.answer(TEXTS[lang]["choose_store"], reply_markup=store_keyboard(available_stores, lang))
 
-@dp.message(CommandStart())
-async def start_cmd(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer(
-        "🤖 <b>Assalomu alaykum!</b>\n\n"
-        "BUTTON erkaklar kiyim do'koniga ishga qabul botiga xush kelibsiz.\n\n"
-        "📋 Iltimos, quyidagi qisqa anketani to'ldiring.",
-        reply_markup=start_kb()
+async def send_hr_summary(user_id: int):
+    data = user_data.get(user_id, {})
+    lang = get_lang(user_id)
+
+    vacancy_internal = data.get("vacancy", "-")
+    vacancy_display = vacancy_internal if lang == "uz" else vacancy_map_internal_to_ru.get(vacancy_internal, vacancy_internal)
+    store_name = data.get("store", "-")
+
+    summary = (
+        f"📥 <b>Yangi nomzod / Новый кандидат</b>\n\n"
+        f"<b>Til / Язык:</b> {'O‘zbekcha' if lang == 'uz' else 'Русский'}\n"
+        f"<b>Vakansiya / Вакансия:</b> {vacancy_display}\n"
+        f"<b>Filial / Филиал:</b> {store_name}\n"
+        f"<b>F.I.Sh / ФИО:</b> {data.get('full_name', '-')}\n"
+        f"<b>Telefon / Телефон:</b> {data.get('phone', '-')}\n"
+        f"<b>Hudud / Район:</b> {data.get('district', '-')}\n"
+        f"<b>Oilaviy holati / Семейное положение:</b> {data.get('marital_status', '-')}\n"
+        f"<b>Ma'lumoti / Образование:</b> {data.get('education', '-')}\n"
+        f"<b>O‘qiydimi / Учится:</b> {data.get('is_studying', '-')}\n"
+        f"<b>Ta'lim shakli / Форма обучения:</b> {data.get('study_form', '-')}\n"
+        f"<b>Ish tajribasi / Опыт работы:</b> {data.get('work_exp', '-')}\n"
+        f"<b>Ishga chiqish sanasi / Готов выйти:</b> {data.get('start_date', '-')}\n"
     )
 
-
-@dp.message(F.text == "✅ Anketani boshlash")
-async def start_form(message: Message, state: FSMContext):
-    await state.clear()
-    await goto_step(message, state, "full_name")
-
-
-@dp.message(F.text == "🔄 Qaytadan boshlash")
-async def restart_form(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("🔄 Anketa boshidan boshlandi.", reply_markup=ReplyKeyboardRemove())
-    await goto_step(message, state, "full_name")
-
-
-@dp.message(F.text == "❌ Bekor qilish")
-async def cancel_form(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("❌ Anketa bekor qilindi.", reply_markup=start_kb())
-
-
-@dp.message(F.text == "⬅️ Orqaga")
-async def back_form(message: Message, state: FSMContext):
-    current = get_state_name(await state.get_state())
-
-    if not current:
-        await message.answer("Siz hozir anketada emassiz.", reply_markup=start_kb())
-        return
-
-    index = STEP_ORDER.index(current)
-    if index == 0:
-        await state.clear()
-        await message.answer("Siz boshiga qaytdingiz.", reply_markup=start_kb())
-        return
-
-    prev_field = STEP_ORDER[index - 1]
-    await goto_step(message, state, prev_field)
-
-
-@dp.message(StateFilter(Form.full_name))
-async def process_full_name(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    if len(text) < 3:
-        await message.answer("Iltimos, to'liq ism familiya yozing.")
-        return
-    await state.update_data(full_name=text)
-    await goto_step(message, state, "age")
-
-
-@dp.message(StateFilter(Form.age))
-async def process_age(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    if not text.isdigit():
-        await message.answer("Iltimos, yoshni raqam bilan kiriting. Masalan: 22")
-        return
-    await state.update_data(age=text)
-    await goto_step(message, state, "phone")
-
-
-@dp.message(StateFilter(Form.phone))
-async def process_phone(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    await state.update_data(phone=text)
-    await goto_step(message, state, "position")
-
-
-@dp.message(StateFilter(Form.position))
-async def process_position(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    if text not in POSITIONS:
-        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=position_kb())
-        return
-    await state.update_data(position=text)
-    await goto_step(message, state, "branch")
-
-
-@dp.message(StateFilter(Form.branch))
-async def process_branch(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    if text not in BRANCHES:
-        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=branch_kb())
-        return
-    await state.update_data(branch=text)
-    await goto_step(message, state, "experience")
-
-
-@dp.message(StateFilter(Form.experience))
-async def process_experience(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    if text not in EXPERIENCE_OPTIONS:
-        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=yes_no_kb())
-        return
-    await state.update_data(experience=text)
-    await goto_step(message, state, "experience_text")
-
-
-@dp.message(StateFilter(Form.experience_text))
-async def process_experience_text(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    await state.update_data(experience_text=text)
-    await goto_step(message, state, "schedule")
-
-
-@dp.message(StateFilter(Form.schedule))
-async def process_schedule(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    if text not in SCHEDULES:
-        await message.answer("Iltimos, tugmalardan birini tanlang.", reply_markup=schedule_kb())
-        return
-    await state.update_data(schedule=text)
-    await goto_step(message, state, "salary")
-
-
-@dp.message(StateFilter(Form.salary))
-async def process_salary(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    await state.update_data(salary=text)
-    await goto_step(message, state, "start_date")
-
-
-@dp.message(StateFilter(Form.start_date))
-async def process_start_date(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    await state.update_data(start_date=text)
-    await goto_step(message, state, "comment")
-
-
-@dp.message(StateFilter(Form.comment))
-async def process_comment(message: Message, state: FSMContext):
-    text = (message.text or "").strip()
-    await state.update_data(comment=text)
-    await goto_step(message, state, "photo")
-
-
-@dp.message(StateFilter(Form.photo), F.photo)
-async def process_photo(message: Message, state: FSMContext):
-    data = await state.get_data()
-
-    telegram_username = message.from_user.username or "yoq"
-    telegram_user_id = message.from_user.id
-
-    await state.update_data(
-        telegram_username=telegram_username,
-        telegram_user_id=telegram_user_id
-    )
-
-    data["telegram_username"] = telegram_username
-    data["telegram_user_id"] = telegram_user_id
-
-    text = (
-        "📥 <b>BUTTON | Yangi nomzod anketasi</b>\n\n"
-        f"👤 <b>Ism familiya:</b> {data.get('full_name')}\n"
-        f"🎂 <b>Yoshi:</b> {data.get('age')}\n"
-        f"📱 <b>Telefon:</b> {data.get('phone')}\n"
-        f"💼 <b>Lavozim:</b> {data.get('position')}\n"
-        f"📍 <b>Filial:</b> {data.get('branch')}\n"
-        f"⭐ <b>Tajriba bormi:</b> {data.get('experience')}\n"
-        f"🧠 <b>Tajriba haqida:</b> {data.get('experience_text')}\n"
-        f"🕒 <b>Qulay grafik:</b> {data.get('schedule')}\n"
-        f"💰 <b>Kutilayotgan maosh:</b> {data.get('salary')}\n"
-        f"🚀 <b>Ish boshlash vaqti:</b> {data.get('start_date')}\n"
-        f"💬 <b>Izoh:</b> {data.get('comment')}\n\n"
-        f"🆔 <b>Telegram ID:</b> <code>{telegram_user_id}</code>\n"
-        f"📎 <b>Username:</b> @{telegram_username}"
-    )
-
-    await bot.send_message(chat_id=HR_CHAT_ID, text=text)
-
-    await bot.send_photo(
-        chat_id=HR_CHAT_ID,
-        photo=message.photo[-1].file_id,
-        caption=f"📸 Nomzod rasmi: {data.get('full_name')}"
-    )
-
-    try:
-        photo_path = await download_candidate_photo(message, data.get("full_name", "candidate"))
-        pdf_path = create_candidate_pdf(data, photo_path)
-
-        await bot.send_document(
+    photo_file_id = data.get("photo_file_id")
+    if photo_file_id:
+        await bot.send_photo(
             chat_id=HR_CHAT_ID,
-            document=FSInputFile(pdf_path),
-            caption=f"📄 Tayyor CV PDF: {data.get('full_name')}"
+            photo=photo_file_id,
+            caption=summary
         )
-    except Exception as e:
-        await bot.send_message(
-            chat_id=HR_CHAT_ID,
-            text=f"⚠️ PDF yaratishda xatolik bo'ldi: {e}"
-        )
+    else:
+        await bot.send_message(chat_id=HR_CHAT_ID, text=summary)
 
-    await goto_step(message, state, "external_cv")
+# =========================
+# START
+# =========================
+@dp.message_handler(commands=["start"])
+async def cmd_start(message: types.Message):
+    user_id = message.from_user.id
+    reset_user(user_id)
+    await message.answer(TEXTS["uz"]["choose_lang"], reply_markup=lang_keyboard())
 
+# =========================
+# ПЕРЕЗАПУСК
+# =========================
+@dp.message_handler(lambda message: message.text in ["Qayta boshlash 🔄", "Начать заново 🔄"])
+async def restart_form(message: types.Message):
+    user_id = message.from_user.id
+    reset_user(user_id)
+    await message.answer(TEXTS["uz"]["choose_lang"], reply_markup=lang_keyboard())
 
-@dp.message(StateFilter(Form.photo))
-async def photo_required(message: Message):
-    await message.answer(
-        "📸 Iltimos, rasmni photo ko'rinishida yuboring.",
-        reply_markup=action_kb()
-    )
+# =========================
+# ВЫБОР ЯЗЫКА
+# =========================
+@dp.message_handler(lambda message: message.text in ["🇺🇿 O‘zbekcha", "🇷🇺 Русский"])
+async def choose_language(message: types.Message):
+    user_id = message.from_user.id
 
+    if message.text == "🇺🇿 O‘zbekcha":
+        user_lang[user_id] = "uz"
+    else:
+        user_lang[user_id] = "ru"
 
-@dp.message(StateFilter(Form.external_cv), F.document)
-async def process_external_cv(message: Message, state: FSMContext):
-    doc = message.document
-    if not doc.file_name.lower().endswith(".pdf"):
-        await message.answer(
-            "Iltimos, faqat PDF fayl yuboring.",
-            reply_markup=external_cv_kb()
-        )
+    if user_id not in user_data:
+        user_data[user_id] = {}
+
+    await send_vacancy_menu(message, user_id)
+
+# =========================
+# ВЫБОР ВАКАНСИИ
+# =========================
+@dp.message_handler(lambda message: message.text in list(vacancy_map_ru_to_internal.keys()) + list(vacancy_to_stores.keys()))
+async def choose_vacancy(message: types.Message):
+    user_id = message.from_user.id
+    lang = get_lang(user_id)
+
+    vacancy = message.text
+    if vacancy in vacancy_map_ru_to_internal:
+        vacancy = vacancy_map_ru_to_internal[vacancy]
+
+    if user_id not in user_data:
+        user_data[user_id] = {}
+
+    user_data[user_id]["vacancy"] = vacancy
+    await send_store_menu(message, user_id)
+
+# =========================
+# ВЫБОР ФИЛИАЛА
+# =========================
+@dp.message_handler(lambda message: message.text in stores)
+async def choose_store(message: types.Message):
+    user_id = message.from_user.id
+    lang = get_lang(user_id)
+
+    if user_id not in user_data or "vacancy" not in user_data[user_id]:
+        await send_vacancy_menu(message, user_id)
         return
 
-    await bot.send_document(
-        chat_id=HR_CHAT_ID,
-        document=doc.file_id,
-        caption="📎 Nomzod yuborgan tayyor CV PDF"
+    store_name = message.text
+    vacancy = user_data[user_id]["vacancy"]
+    allowed_stores = vacancy_to_stores.get(vacancy, [])
+
+    if store_name not in allowed_stores:
+        await send_store_menu(message, user_id)
+        return
+
+    user_data[user_id]["store"] = store_name
+    store = stores[store_name]
+
+    await bot.send_location(
+        chat_id=message.chat.id,
+        latitude=store["lat"],
+        longitude=store["lon"]
     )
-    await finish_flow(message, state)
 
+    address_text = store["address_uz"] if lang == "uz" else store["address_ru"]
+    user_step[user_id] = "confirm_store"
 
-@dp.message(StateFilter(Form.external_cv), F.text == "Roziman ✅")
-async def skip_external_cv(message: Message, state: FSMContext):
-    await finish_flow(message, state)
-
-
-@dp.message(StateFilter(Form.external_cv))
-async def external_cv_required(message: Message):
     await message.answer(
-        "📄 Iltimos, PDF fayl yuboring yoki Roziman ✅ tugmasini bosing.",
-        reply_markup=external_cv_kb()
+        f"{TEXTS[lang]['location_sent']}\n\n"
+        f"🏬 {'Filial' if lang == 'uz' else 'Филиал'}: {store_name}\n"
+        f"📍 {'Manzil' if lang == 'uz' else 'Адрес'}: {address_text}\n\n"
+        f"{TEXTS[lang]['location_question']}",
+        reply_markup=location_confirm_keyboard(lang)
     )
 
+# =========================
+# ПОДТВЕРЖДЕНИЕ ФИЛИАЛА
+# =========================
+@dp.message_handler(lambda message: message.text in [
+    TEXTS["uz"]["yes_location"], TEXTS["uz"]["no_location"],
+    TEXTS["ru"]["yes_location"], TEXTS["ru"]["no_location"]
+])
+async def handle_store_confirmation(message: types.Message):
+    user_id = message.from_user.id
+    lang = get_lang(user_id)
 
-async def main():
-    print("Bot ishga tushdi...")
-    await dp.start_polling(bot)
+    if user_id not in user_data or "vacancy" not in user_data[user_id]:
+        await send_vacancy_menu(message, user_id)
+        return
 
+    if message.text == TEXTS[lang]["yes_location"]:
+        user_step[user_id] = "full_name"
+        await message.answer(TEXTS[lang]["ask_name"], reply_markup=ReplyKeyboardRemove())
+    else:
+        await send_store_menu(message, user_id)
+
+# =========================
+# ШАГИ АНКЕТЫ
+# =========================
+@dp.message_handler(content_types=types.ContentType.CONTACT)
+async def handle_contact(message: types.Message):
+    user_id = message.from_user.id
+    lang = get_lang(user_id)
+
+    if user_step.get(user_id) != "phone":
+        return
+
+    user_data[user_id]["phone"] = message.contact.phone_number
+    user_step[user_id] = "district"
+    await message.answer(TEXTS[lang]["ask_district"], reply_markup=ReplyKeyboardRemove())
+
+@dp.message_handler(content_types=types.ContentType.PHOTO)
+async def handle_photo(message: types.Message):
+    user_id = message.from_user.id
+    lang = get_lang(user_id)
+
+    if user_step.get(user_id) != "photo":
+        return
+
+    user_data[user_id]["photo_file_id"] = message.photo[-1].file_id
+    user_step[user_id] = "consent"
+    await message.answer(TEXTS[lang]["ask_consent"], reply_markup=consent_keyboard(lang))
+
+@dp.message_handler(lambda message: message.text in [TEXTS["uz"]["consent"], TEXTS["ru"]["consent"]])
+async def handle_consent(message: types.Message):
+    user_id = message.from_user.id
+    lang = get_lang(user_id)
+
+    if user_step.get(user_id) != "consent":
+        return
+
+    await send_hr_summary(user_id)
+    await message.answer(TEXTS[lang]["done"], reply_markup=ReplyKeyboardRemove())
+    user_step[user_id] = "done"
+
+@dp.message_handler()
+async def process_form_steps(message: types.Message):
+    user_id = message.from_user.id
+    lang = get_lang(user_id)
+    step = user_step.get(user_id)
+
+    if not step:
+        reset_user(user_id)
+        await message.answer(TEXTS["uz"]["choose_lang"], reply_markup=lang_keyboard())
+        return
+
+    if step == "choose_lang":
+        await message.answer(TEXTS["uz"]["choose_lang"], reply_markup=lang_keyboard())
+        return
+
+    if step == "choose_vacancy":
+        await message.answer(TEXTS[lang]["choose_vacancy"], reply_markup=vacancy_keyboard(lang))
+        return
+
+    if step == "choose_store":
+        await send_store_menu(message, user_id)
+        return
+
+    if step == "full_name":
+        user_data[user_id]["full_name"] = message.text
+        user_step[user_id] = "phone"
+        await message.answer(TEXTS[lang]["ask_phone"], reply_markup=phone_keyboard(lang))
+        return
+
+    if step == "phone":
+        user_data[user_id]["phone"] = message.text
+        user_step[user_id] = "district"
+        await message.answer(TEXTS[lang]["ask_district"], reply_markup=ReplyKeyboardRemove())
+        return
+
+    if step == "district":
+        user_data[user_id]["district"] = message.text
+        user_step[user_id] = "marital_status"
+        await message.answer(TEXTS[lang]["ask_marital"], reply_markup=options_keyboard(TEXTS[lang]["marital_options"]))
+        return
+
+    if step == "marital_status":
+        if message.text not in TEXTS[lang]["marital_options"]:
+            await message.answer(TEXTS[lang]["ask_marital"], reply_markup=options_keyboard(TEXTS[lang]["marital_options"]))
+            return
+        user_data[user_id]["marital_status"] = message.text
+        user_step[user_id] = "education"
+        await message.answer(TEXTS[lang]["ask_education"], reply_markup=options_keyboard(TEXTS[lang]["education_options"]))
+        return
+
+    if step == "education":
+        if message.text not in TEXTS[lang]["education_options"]:
+            await message.answer(TEXTS[lang]["ask_education"], reply_markup=options_keyboard(TEXTS[lang]["education_options"]))
+            return
+        user_data[user_id]["education"] = message.text
+        user_step[user_id] = "is_studying"
+        await message.answer(TEXTS[lang]["ask_study"], reply_markup=options_keyboard(TEXTS[lang]["study_options"]))
+        return
+
+    if step == "is_studying":
+        if message.text not in TEXTS[lang]["study_options"]:
+            await message.answer(TEXTS[lang]["ask_study"], reply_markup=options_keyboard(TEXTS[lang]["study_options"]))
+            return
+        user_data[user_id]["is_studying"] = message.text
+
+        positive_study = "Ha" if lang == "uz" else "Да"
+        if message.text == positive_study:
+            user_step[user_id] = "study_form"
+            await message.answer(TEXTS[lang]["ask_study_form"], reply_markup=options_keyboard(TEXTS[lang]["study_form_options"]))
+        else:
+            user_data[user_id]["study_form"] = "-"
+            user_step[user_id] = "work_exp"
+            await message.answer(TEXTS[lang]["ask_work_exp"], reply_markup=ReplyKeyboardRemove())
+        return
+
+    if step == "study_form":
+        if message.text not in TEXTS[lang]["study_form_options"]:
+            await message.answer(TEXTS[lang]["ask_study_form"], reply_markup=options_keyboard(TEXTS[lang]["study_form_options"]))
+            return
+        user_data[user_id]["study_form"] = message.text
+        user_step[user_id] = "work_exp"
+        await message.answer(TEXTS[lang]["ask_work_exp"], reply_markup=ReplyKeyboardRemove())
+        return
+
+    if step == "work_exp":
+        user_data[user_id]["work_exp"] = message.text
+        user_step[user_id] = "start_date"
+        await message.answer(TEXTS[lang]["ask_start_date"])
+        return
+
+    if step == "start_date":
+        user_data[user_id]["start_date"] = message.text
+        user_step[user_id] = "photo"
+        await message.answer(TEXTS[lang]["ask_photo"], reply_markup=ReplyKeyboardRemove())
+        return
+
+    if step == "photo":
+        await message.answer(TEXTS[lang]["wrong_photo"])
+        return
+
+    if step == "consent":
+        await message.answer(TEXTS[lang]["ask_consent"], reply_markup=consent_keyboard(lang))
+        return
+
+    if step == "done":
+        await message.answer(TEXTS[lang]["done"])
+        return
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    executor.start_polling(dp, skip_updates=True)
