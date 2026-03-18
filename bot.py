@@ -745,19 +745,22 @@ async def photo_handler(message: Message):
     await message.answer(t["consent_request"], reply_markup=consent_keyboard(lang))
 
 
-@dp.message(F.text)
-async def text_handler(message: Message):
+@dp.message(F.document)
+async def document_photo_handler(message: Message):
     user_id = message.from_user.id
     ensure_user(user_id)
 
-    text = (message.text or "").strip()
-    stage = users[user_id]["stage"]
-    lang = get_lang(user_id)
-
-    if text in [CANCEL_TEXT_RU, CANCEL_TEXT_UZ]:
-        users.pop(user_id, None)
-        await message.answer(TEXTS[lang]["cancelled"], reply_markup=ReplyKeyboardRemove())
+    if users[user_id]["stage"] != "photo":
+        await message.answer("Hozir foto kerak emas.")
         return
+
+    users[user_id]["data"]["photo_file_id"] = message.document.file_id
+    users[user_id]["stage"] = "consent"
+
+    await message.answer(
+        "Anketani yuborishni tasdiqlang:",
+        reply_markup=consent_keyboard()
+    )
 
     if text in [RESTART_TEXT_RU, RESTART_TEXT_UZ]:
         reset_user(user_id)
