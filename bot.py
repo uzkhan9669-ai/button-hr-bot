@@ -728,19 +728,25 @@ async def text_handler(message: Message):
     await message.answer(t["fallback_start"])
 
 
-@dp.message(F.photo)
-async def photo_handler(message: Message):
-    user_id = message.from_user.id
-    ensure_user(user_id)
-    lang = get_lang(user_id)
-    t = TEXTS[lang]
+@dp.message(Form.photo, F.photo)
+async def get_photo(message: Message, state: FSMContext):
 
-    if users[user_id]["stage"] != "photo":
-        await message.answer(t["photo_not_needed"])
-        return
+    data = await state.get_data()
 
-    users[user_id]["data"]["photo_file_id"] = message.photo[-1].file_id
-    users[user_id]["stage"] = "consent"
+    photo = message.photo[-1]
+
+    await bot.send_photo(
+        chat_id=int(HR_CHAT_ID),
+        photo=photo.file_id,
+        caption=f"📸 Nomzod rasmi: {data.get('full_name')}"
+    )
+
+    await message.answer(
+        "✅ Anketani yuborishga rozimisiz?",
+        reply_markup=consent_keyboard()
+    )
+
+    await state.set_state(Form.consent)
 
     await message.answer(t["consent_request"], reply_markup=consent_keyboard(lang))
 
