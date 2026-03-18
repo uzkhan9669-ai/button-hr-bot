@@ -25,8 +25,9 @@ from reportlab.pdfgen import canvas
 # =========================
 # SETTINGS
 # =========================
-BOT_TOKEN = "8731952281:AAHlcIryCTRTF1ZBG11LFQdGfUv4mr29BgA"
-HR_CHAT_ID = -5208914641  # masalan: -100xxxxxxxxxx
+import os
+BOT_TOKEN = os.getenv("8731952281:AAHlcIryCTRTF1ZBG11LFQdGfUv4mr29BgA")
+HR_CHAT_ID = os.getenv -5208914641
 
 PDF_FONT_PATH = "DejaVuSans.ttf"  # shu faylni project papkasiga tashla
 PDF_FONT_NAME = "DejaVuSans"
