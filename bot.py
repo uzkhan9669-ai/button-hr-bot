@@ -1,312 +1,384 @@
 import asyncio
-import logging
 import os
+import re
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     Message,
-    CallbackQuery,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
     ReplyKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardRemove,
 )
-from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters import CommandStart
+from dotenv import load_dotenv
+from fpdf import FPDF
 
-logging.basicConfig(level=logging.INFO)
+load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 HR_CHAT_ID = os.getenv("HR_CHAT_ID")
 
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN topilmadi. .env faylni tekshiring.")
+
+if not HR_CHAT_ID:
+    raise ValueError("HR_CHAT_ID topilmadi. .env faylni tekshiring.")
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
 dp = Dispatcher(storage=MemoryStorage())
 
-# =========================
-# DATA
-# =========================
+TMP_DIR = Path("/tmp/button_hr_bot")
+TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-TEXTS = {
-    "uz": {
-        "start": "Assalomu alaykum! BUTTON kompaniyasiga xush kelibsiz.\nTilni tanlang:",
-        "choose_branch": "Filialni tanlang:",
-        "choose_vacancy": "Vakansiyani tanlang:",
-        "full_name": "Ism va familiyangizni kiriting:",
-        "phone": "Telefon raqamingizni yuboring yoki yozing:",
-        "consent": "Ma'lumotlaringizni BUTTON kompaniyasiga yuborishga rozimisiz?",
-        "thanks": "Rahmat! Anketangiz yuborildi ✅",
-        "cancel": "Bekor qilindi.",
-        "send_phone": "📱 Raqamni yuborish",
-        "yes": "Roziman ✅",
-        "no": "Bekor qilish ❌",
-    },
-    "ru": {
-        "start": "Здравствуйте! Добро пожаловать в BUTTON.\nВыберите язык:",
-        "choose_branch": "Выберите филиал:",
-        "choose_vacancy": "Выберите вакансию:",
-        "full_name": "Введите имя и фамилию:",
-        "phone": "Отправьте номер телефона или введите его:",
-        "consent": "Вы согласны отправить свои данные в компанию BUTTON?",
-        "thanks": "Спасибо! Ваша анкета отправлена ✅",
-        "cancel": "Отменено.",
-        "send_phone": "📱 Отправить номер",
-        "yes": "Согласен ✅",
-        "no": "Отмена ❌",
-    },
-}
-
-BRANCHES = {
-    "andalus": {
-        "uz": "Chilonzor — Andalus",
-        "ru": "Чиланзар — Andalus",
-        "map": "https://maps.app.goo.gl/oYSJC9WdxCHJJCi9A",
-        "vacancies": ["seller", "cashier", "security", "cleaner"],
-    },
-    "integro": {
-        "uz": "Chilonzor — Integro",
-        "ru": "Чиланзар — Integro",
-        "map": "https://maps.app.goo.gl/qkpAoaWKAMcnsNT68",
-        "vacancies": ["seller", "cashier", "security", "cleaner"],
-    },
-    "beruniy": {
-        "uz": "Beruniy — Korzinka",
-        "ru": "Беруний — Korzinka",
-        "map": "https://maps.app.goo.gl/kJG4gRnn6H5aDm6F8",
-        "vacancies": ["seller", "cashier", "security", "cleaner"],
-    },
-    "risoviy": {
-        "uz": "Risoviy bozor — Magnit",
-        "ru": "Рисовый базар — Magnit",
-        "map": "https://maps.app.goo.gl/SYLeo8T8hLAQ92s76",
-        "vacancies": ["seller", "cashier", "security", "cleaner"],
-    },
-    "shaxriston": {
-        "uz": "Shaxriston — Korzinka",
-        "ru": "Шахристон — Korzinka",
-        "map": "https://maps.app.goo.gl/wtqnQgRQKhhksgQ38",
-        "vacancies": ["seller", "cashier", "security", "cleaner"],
-    },
-    "makon": {
-        "uz": "Shayxontohur — Makon",
-        "ru": "Шайхонтохур — Makon",
-        "map": "https://maps.app.goo.gl/MCsg4vuu8fiXYm8N7",
-        "vacancies": ["seller", "cashier", "security", "cleaner", "storekeeper"],
-    },
-    "office": {
-        "uz": "Ofis — Andalus",
-        "ru": "Офис — Andalus",
-        "map": "https://maps.app.goo.gl/GDgu8ar46ffh1zb46",
-        "vacancies": ["hr", "operator"],
-    },
-}
-
-VACANCIES = {
-    "seller": {"uz": "Sotuvchi-maslahatchi", "ru": "Продавец-консультант"},
-    "cashier": {"uz": "Kassir", "ru": "Кассир"},
-    "security": {"uz": "Oxrana", "ru": "Охрана"},
-    "cleaner": {"uz": "Tozalik hodimasi", "ru": "Уборщица"},
-    "storekeeper": {"uz": "Kladovshik", "ru": "Кладовщик"},
-    "hr": {"uz": "HR", "ru": "HR"},
-    "operator": {"uz": "Operator", "ru": "Оператор"},
-}
-
-# =========================
-# FSM
-# =========================
 
 class Form(StatesGroup):
-    lang = State()
-    branch = State()
-    vacancy = State()
     full_name = State()
+    age = State()
     phone = State()
-    consent = State()
+    position = State()
+    branch = State()
+    experience = State()
+    experience_text = State()
+    schedule = State()
+    salary = State()
+    start_date = State()
+    comment = State()
+    photo = State()
 
-# =========================
-# HELPERS
-# =========================
 
-def t(lang, key):
-    return TEXTS[lang][key]
-
-def lang_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="O‘zbekcha", callback_data="lang_uz")],
-        [InlineKeyboardButton(text="Русский", callback_data="lang_ru")],
-    ])
-
-def branch_keyboard(lang):
-    buttons = []
-    for key, item in BRANCHES.items():
-        buttons.append([InlineKeyboardButton(text=item[lang], callback_data=f"branch_{key}")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def vacancy_keyboard(lang, branch_key):
-    buttons = []
-    for key in BRANCHES[branch_key]["vacancies"]:
-        buttons.append([InlineKeyboardButton(text=VACANCIES[key][lang], callback_data=f"vacancy_{key}")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def phone_keyboard(lang):
+def start_keyboard():
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=t(lang, "send_phone"), request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
+        keyboard=[
+            [KeyboardButton(text="✅ Anketani boshlash")]
+        ],
+        resize_keyboard=True
     )
 
-def consent_keyboard(lang):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t(lang, "yes"), callback_data="consent_yes")],
-        [InlineKeyboardButton(text=t(lang, "no"), callback_data="consent_no")],
-    ])
 
-def valid_phone(phone: str):
-    phone = phone.replace(" ", "").replace("-", "")
-    return len(phone) >= 9
+def position_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👔 Sotuvchi-maslahatchi")],
+            [KeyboardButton(text="💰 Kassir")],
+            [KeyboardButton(text="📦 Skladovshik")],
+            [KeyboardButton(text="🛡 Qo'riqchi")]
+        ],
+        resize_keyboard=True
+    )
 
-# =========================
-# HANDLERS
-# =========================
+
+def branch_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏬 Risoviy bozor - Magnit")],
+            [KeyboardButton(text="🏬 Chilonzor - Andalus")],
+            [KeyboardButton(text="🏬 Beruniy - Korzinka")],
+            [KeyboardButton(text="🏬 Shayxontohur - Makon")],
+            [KeyboardButton(text="🔄 Farqi yo'q")]
+        ],
+        resize_keyboard=True
+    )
+
+
+def yes_no_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="✅ Ha"), KeyboardButton(text="❌ Yo'q")]
+        ],
+        resize_keyboard=True
+    )
+
+
+def schedule_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🕘 To'liq smena")],
+            [KeyboardButton(text="🌅 Faqat kunduzgi"), KeyboardButton(text="🌙 Faqat kechki")],
+            [KeyboardButton(text="🔄 Moslashuvchan")]
+        ],
+        resize_keyboard=True
+    )
+
+
+def clean_filename(text: str) -> str:
+    text = text.strip().replace(" ", "_")
+    return re.sub(r"[^A-Za-z0-9_]+", "", text) or "candidate"
+
+
+def create_candidate_pdf(data: dict, photo_path: str) -> str:
+    candidate_name = data.get("full_name", "candidate")
+    safe_name = clean_filename(candidate_name)
+    pdf_path = TMP_DIR / f"CV_{safe_name}.pdf"
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "BUTTON CV", ln=True, align="C")
+    pdf.ln(4)
+
+    if photo_path and Path(photo_path).exists():
+        try:
+            pdf.image(photo_path, x=150, y=20, w=35)
+        except Exception:
+            pass
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Nomzod haqida ma'lumot", ln=True)
+    pdf.ln(2)
+
+    pdf.set_font("Helvetica", size=11)
+
+    rows = [
+        ("Ism familiya", data.get("full_name", "-")),
+        ("Yoshi", data.get("age", "-")),
+        ("Telefon", data.get("phone", "-")),
+        ("Lavozim", data.get("position", "-")),
+        ("Filial", data.get("branch", "-")),
+        ("Tajriba bormi", data.get("experience", "-")),
+        ("Tajriba haqida", data.get("experience_text", "-")),
+        ("Qulay grafik", data.get("schedule", "-")),
+        ("Kutilayotgan maosh", data.get("salary", "-")),
+        ("Ish boshlash vaqti", data.get("start_date", "-")),
+        ("Izoh", data.get("comment", "-")),
+        ("Telegram ID", str(data.get("telegram_user_id", "-"))),
+        ("Telegram username", data.get("telegram_username", "-")),
+    ]
+
+    for label, value in rows:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.multi_cell(55, 8, f"{label}: ", border=0)
+        y_before = pdf.get_y()
+        pdf.set_xy(65, y_before - 8)
+        pdf.set_font("Helvetica", size=11)
+        pdf.multi_cell(0, 8, str(value), border=0)
+        pdf.ln(1)
+
+    pdf.output(str(pdf_path))
+    return str(pdf_path)
+
+
+async def download_candidate_photo(message: Message, full_name: str) -> str:
+    photo = message.photo[-1]
+    file = await bot.get_file(photo.file_id)
+
+    safe_name = clean_filename(full_name)
+    photo_path = TMP_DIR / f"{safe_name}_photo.jpg"
+
+    await bot.download_file(file.file_path, destination=photo_path)
+    return str(photo_path)
+
 
 @dp.message(CommandStart())
-async def start_handler(message: Message, state: FSMContext):
+async def start_cmd(message: Message, state: FSMContext):
     await state.clear()
-    await state.set_state(Form.lang)
-    await message.answer("BUTTON HR BOT", reply_markup=ReplyKeyboardRemove())
-    await message.answer("Выберите язык / Tilni tanlang:", reply_markup=lang_keyboard())
-
-@dp.callback_query(F.data.startswith("lang_"))
-async def language_handler(callback: CallbackQuery, state: FSMContext):
-    lang = callback.data.split("_")[1]
-    await state.update_data(lang=lang)
-    await state.set_state(Form.branch)
-    await callback.message.edit_text(t(lang, "choose_branch"), reply_markup=branch_keyboard(lang))
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("branch_"))
-async def branch_handler(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    lang = data["lang"]
-    branch_key = callback.data.split("_", 1)[1]
-
-    await state.update_data(branch=branch_key)
-    await state.set_state(Form.vacancy)
-    await callback.message.edit_text(t(lang, "choose_vacancy"), reply_markup=vacancy_keyboard(lang, branch_key))
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("vacancy_"))
-async def vacancy_handler(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    lang = data["lang"]
-    vacancy_key = callback.data.split("_", 1)[1]
-    branch_key = data["branch"]
-
-    await state.update_data(vacancy=vacancy_key)
-    await callback.message.edit_text(
-        f"<b>{BRANCHES[branch_key][lang]}</b>\n📍 {BRANCHES[branch_key]['map']}",
-        parse_mode=ParseMode.HTML
+    await message.answer(
+        "🤖 <b>Assalomu alaykum!</b>\n\n"
+        "BUTTON erkaklar kiyim do'koniga ishga qabul botiga xush kelibsiz.\n\n"
+        "📋 Iltimos, quyidagi qisqa anketani to'ldiring.",
+        reply_markup=start_keyboard()
     )
-    await callback.message.answer(t(lang, "full_name"))
+
+
+@dp.message(F.text == "✅ Anketani boshlash")
+async def start_form(message: Message, state: FSMContext):
     await state.set_state(Form.full_name)
-    await callback.answer()
+    await message.answer(
+        "👤 Ism va familiyangizni yozing:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
 
 @dp.message(Form.full_name)
-async def full_name_handler(message: Message, state: FSMContext):
+async def get_name(message: Message, state: FSMContext):
     await state.update_data(full_name=message.text.strip())
-    data = await state.get_data()
-    lang = data["lang"]
-    await state.set_state(Form.phone)
-    await message.answer(t(lang, "phone"), reply_markup=phone_keyboard(lang))
+    await state.set_state(Form.age)
+    await message.answer("🎂 Yoshingiz nechida?")
 
-@dp.message(Form.phone, F.contact)
-async def phone_contact_handler(message: Message, state: FSMContext):
-    phone = message.contact.phone_number
-    if not phone.startswith("+"):
-        phone = "+" + phone
 
-    await state.update_data(phone=phone)
-    data = await state.get_data()
-    lang = data["lang"]
-    await state.set_state(Form.consent)
-    await message.answer(t(lang, "consent"), reply_markup=ReplyKeyboardRemove())
-    await message.answer(t(lang, "consent"), reply_markup=consent_keyboard(lang))
-
-@dp.message(Form.phone)
-async def phone_text_handler(message: Message, state: FSMContext):
-    phone = message.text.strip()
-    if not valid_phone(phone):
-        data = await state.get_data()
-        await message.answer(t(data["lang"], "phone"))
+@dp.message(Form.age)
+async def get_age(message: Message, state: FSMContext):
+    age = message.text.strip()
+    if not age.isdigit():
+        await message.answer("⚠️ Iltimos, yoshni raqam bilan kiriting. Masalan: 22")
         return
 
-    if not phone.startswith("+"):
-        phone = "+" + phone
+    await state.update_data(age=age)
+    await state.set_state(Form.phone)
+    await message.answer("📱 Telefon raqamingizni yozing:\nMasalan: +998901234567")
 
-    await state.update_data(phone=phone)
-    data = await state.get_data()
-    lang = data["lang"]
-    await state.set_state(Form.consent)
-    await message.answer(t(lang, "consent"), reply_markup=ReplyKeyboardRemove())
-    await message.answer(t(lang, "consent"), reply_markup=consent_keyboard(lang))
 
-@dp.callback_query(F.data == "consent_yes")
-async def consent_yes_handler(callback: CallbackQuery, state: FSMContext, bot: Bot):
+@dp.message(Form.phone)
+async def get_phone(message: Message, state: FSMContext):
+    await state.update_data(phone=message.text.strip())
+    await state.set_state(Form.position)
+    await message.answer(
+        "💼 Qaysi lavozimda ishlamoqchisiz?",
+        reply_markup=position_keyboard()
+    )
+
+
+@dp.message(Form.position)
+async def get_position(message: Message, state: FSMContext):
+    await state.update_data(position=message.text.strip())
+    await state.set_state(Form.branch)
+    await message.answer(
+        "📍 Qaysi filial yoki hudud sizga qulay?",
+        reply_markup=branch_keyboard()
+    )
+
+
+@dp.message(Form.branch)
+async def get_branch(message: Message, state: FSMContext):
+    await state.update_data(branch=message.text.strip())
+    await state.set_state(Form.experience)
+    await message.answer(
+        "⭐ Shu lavozim bo'yicha ish tajribangiz bormi?",
+        reply_markup=yes_no_keyboard()
+    )
+
+
+@dp.message(Form.experience)
+async def get_experience(message: Message, state: FSMContext):
+    await state.update_data(experience=message.text.strip())
+    await state.set_state(Form.experience_text)
+    await message.answer(
+        "🧠 Tajribangiz haqida qisqacha yozing.\n"
+        "Agar bo'lmasa: yo'q deb yozing.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+
+@dp.message(Form.experience_text)
+async def get_experience_text(message: Message, state: FSMContext):
+    await state.update_data(experience_text=message.text.strip())
+    await state.set_state(Form.schedule)
+    await message.answer(
+        "🕒 Qaysi ish grafigi sizga qulay?",
+        reply_markup=schedule_keyboard()
+    )
+
+
+@dp.message(Form.schedule)
+async def get_schedule(message: Message, state: FSMContext):
+    await state.update_data(schedule=message.text.strip())
+    await state.set_state(Form.salary)
+    await message.answer(
+        "💰 Kutilayotgan oylik maoshingiz qancha?",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+
+@dp.message(Form.salary)
+async def get_salary(message: Message, state: FSMContext):
+    await state.update_data(salary=message.text.strip())
+    await state.set_state(Form.start_date)
+    await message.answer("🚀 Qachondan ish boshlay olasiz?")
+
+
+@dp.message(Form.start_date)
+async def get_start_date(message: Message, state: FSMContext):
+    await state.update_data(start_date=message.text.strip())
+    await state.set_state(Form.comment)
+    await message.answer("💬 Qo'shimcha ma'lumot yoki izoh bo'lsa yozing.\nBo'lmasa: yo'q")
+
+
+@dp.message(Form.comment)
+async def get_comment(message: Message, state: FSMContext):
+    await state.update_data(comment=message.text.strip())
+    await state.set_state(Form.photo)
+    await message.answer(
+        "📸 Iltimos, o'zingizning rasmingizni yuboring\n"
+        "(yuzingiz aniq ko'rinadigan bo'lsin)"
+    )
+
+
+@dp.message(Form.photo, F.photo)
+async def get_photo(message: Message, state: FSMContext):
     data = await state.get_data()
-    lang = data["lang"]
+
+    telegram_username = message.from_user.username if message.from_user.username else "yoq"
+    telegram_user_id = message.from_user.id
+
+    await state.update_data(
+        telegram_username=telegram_username,
+        telegram_user_id=telegram_user_id
+    )
+
+    data["telegram_username"] = telegram_username
+    data["telegram_user_id"] = telegram_user_id
 
     text = (
-        f"<b>📥 Yangi anketa / Новая анкета</b>\n\n"
-        f"<b>Til / Язык:</b> {lang}\n"
-        f"<b>Filial / Филиал:</b> {BRANCHES[data['branch']][lang]}\n"
-        f"<b>Vakansiya / Вакансия:</b> {VACANCIES[data['vacancy']][lang]}\n"
-        f"<b>Lokatsiya:</b> {BRANCHES[data['branch']]['map']}\n"
-        f"<b>F.I.Sh / ФИО:</b> {data['full_name']}\n"
-        f"<b>Telefon / Телефон:</b> {data['phone']}\n"
+        "📥 <b>BUTTON | Yangi nomzod anketasi</b>\n\n"
+        f"👤 <b>Ism familiya:</b> {data.get('full_name')}\n"
+        f"🎂 <b>Yoshi:</b> {data.get('age')}\n"
+        f"📱 <b>Telefon:</b> {data.get('phone')}\n"
+        f"💼 <b>Lavozim:</b> {data.get('position')}\n"
+        f"📍 <b>Filial:</b> {data.get('branch')}\n"
+        f"⭐ <b>Tajriba bormi:</b> {data.get('experience')}\n"
+        f"🧠 <b>Tajriba haqida:</b> {data.get('experience_text')}\n"
+        f"🕒 <b>Qulay grafik:</b> {data.get('schedule')}\n"
+        f"💰 <b>Kutilayotgan maosh:</b> {data.get('salary')}\n"
+        f"🚀 <b>Ish boshlash vaqti:</b> {data.get('start_date')}\n"
+        f"💬 <b>Izoh:</b> {data.get('comment')}\n\n"
+        f"🆔 <b>Telegram ID:</b> <code>{telegram_user_id}</code>\n"
+        f"📎 <b>Username:</b> @{telegram_username}"
+    )
+
+    await bot.send_message(chat_id=int(HR_CHAT_ID), text=text)
+
+    photo = message.photo[-1]
+    await bot.send_photo(
+        chat_id=int(HR_CHAT_ID),
+        photo=photo.file_id,
+        caption=f"📸 Nomzod rasmi: {data.get('full_name')}"
     )
 
     try:
-        await bot.send_message(chat_id=int(HR_CHAT_ID), text=text, parse_mode=ParseMode.HTML)
+        photo_path = await download_candidate_photo(message, data.get("full_name", "candidate"))
+        pdf_path = create_candidate_pdf(data, photo_path)
+
+        with open(pdf_path, "rb") as pdf_file:
+            await bot.send_document(
+                chat_id=int(HR_CHAT_ID),
+                document=pdf_file,
+                caption=f"📄 Tayyor CV PDF: {data.get('full_name')}"
+            )
     except Exception as e:
-        await callback.message.answer(f"Xatolik / Ошибка: {e}")
-        await callback.answer()
-        return
+        await bot.send_message(
+            chat_id=int(HR_CHAT_ID),
+            text=f"⚠️ PDF yaratishda xatolik bo'ldi: {e}"
+        )
 
-    await callback.message.edit_text(t(lang, "thanks"))
-    await state.clear()
-    await callback.answer()
-
-@dp.callback_query(F.data == "consent_no")
-async def consent_no_handler(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    lang = data.get("lang", "uz")
-    await state.clear()
-    await callback.message.edit_text(t(lang, "cancel"))
-    await callback.answer()
-
-@dp.message()
-async def fallback_handler(message: Message):
-    await message.answer("Iltimos, /start bosing. / Пожалуйста, нажмите /start")
-
-# =========================
-# MAIN
-# =========================
-
-async def main():
-    if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN topilmadi")
-    if not HR_CHAT_ID:
-        raise ValueError("HR_CHAT_ID topilmadi")
-
-    bot = Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    await message.answer(
+        "✅ Rahmat! Sizning anketa, rasm va CV PDF qabul qilindi.\n"
+        "BUTTON HR jamoasi tez orada siz bilan bog'lanadi.",
+        reply_markup=ReplyKeyboardRemove()
     )
 
+    await state.clear()
+
+
+@dp.message(Form.photo)
+async def photo_required(message: Message):
+    await message.answer("📸 Iltimos, rasmni photo ko'rinishida yuboring.")
+
+
+async def main():
+    print("Bot ishga tushdi...")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
