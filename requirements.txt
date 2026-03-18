@@ -1,4 +1,5 @@
-aiogram
+aiogram==2.25.1
+reportlab
 python-dotenv
 fpdf2
 Pillow
