@@ -6,7 +6,8 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, FSInputFile
+
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -25,9 +26,6 @@ if not HR_CHAT_ID:
 
 HR_CHAT_ID = int(HR_CHAT_ID)
 
-# =========================
-# BOT
-# =========================
 bot = Bot(
     token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -35,37 +33,163 @@ bot = Bot(
 dp = Dispatcher()
 
 # =========================
-# TEMP STORAGE
+# DATA
 # =========================
-users = {}
+BACK_TEXT = "Назад"
+CANCEL_TEXT = "Отмена"
+RESTART_TEXT = "Заново"
+CONSENT_TEXT = "Согласен"
 
-QUESTIONS = [
-    ("unit", "1. Bo‘limni yozing:\n(Magazin / Ofis / Sklad)"),
-    ("vacancy", "2. Vakansiyani yozing:"),
-    ("branch", "3. Filialni yozing:"),
-    ("full_name", "4. Ismingiz va familiyangiz:"),
-    ("age", "5. Yoshingiz:"),
-    ("phone", "6. Telefon raqamingiz:"),
-    ("district", "7. Qaysi tumanda yashaysiz?"),
-    ("family_status", "8. Oilaviy holatingiz:"),
-    ("education", "9. Ma’lumotingiz:"),
-    ("studying_now", "10. Hozir o‘qiyapsizmi?"),
-    ("study_place", "11. Qayerda o‘qigansiz yoki o‘qiyapsiz?"),
-    ("has_experience", "12. Ish tajribangiz bormi?"),
-    ("last_job", "13. Oxirgi ish joyingiz:"),
-    ("work_period", "14. Qancha vaqt ishlagansiz?"),
-    ("leaving_reason", "15. Nega ishdan ketgansiz?"),
-    ("applying_position", "16. Qaysi lavozimga topshiryapsiz?"),
-    ("preferred_branch", "17. Qulay ish filiali:"),
-    ("start_date", "18. Qachondan ish boshlay olasiz?"),
+UNITS = ["Магазины", "Офис", "Склад"]
+
+VACANCIES = {
+    "Магазины": [
+        "Продавец-консультант",
+        "Кассир",
+        "Охрана",
+        "Уборщица",
+        "Помощник",
+    ],
+    "Офис": [
+        "HR",
+    ],
+    "Склад": [
+        "Кладовщик",
+    ],
+}
+
+BRANCHES = {
+    "Магазины": [
+        "Chilonzor Andalus",
+        "Chilonzor Integro",
+        "Beruniy Korzinka",
+        "Risoviy bozor Magnit",
+        "Shaxriston Korzinka",
+    ],
+    "Офис": [
+        "Ofis Andalus",
+    ],
+    "Склад": [
+        "Shayxontohur Makon",
+    ],
+}
+
+LOCATIONS = {
+    "Ofis Andalus": {
+        "address": "г. Ташкент, Ofis Andalus",
+        "map": "https://maps.app.goo.gl/GDgu8ar46ffh1zb46",
+    },
+    "Beruniy Korzinka": {
+        "address": "г. Ташкент, Beruniy metro, Korzinka",
+        "map": "https://maps.app.goo.gl/kJG4gRnn6H5aDm6F8",
+    },
+    "Chilonzor Andalus": {
+        "address": "г. Ташкент, Chilonzor Andalus",
+        "map": "https://maps.app.goo.gl/oYSJC9WdxCHJJCi9A",
+    },
+    "Risoviy bozor Magnit": {
+        "address": "г. Ташкент, Risoviy bozor Magnit",
+        "map": "https://maps.app.goo.gl/SYLeo8T8hLAQ92s76",
+    },
+    "Shayxontohur Makon": {
+        "address": "г. Ташкент, Shayxontohur Makon",
+        "map": "https://maps.app.goo.gl/MCsg4vuu8fiXYm8N7",
+    },
+    "Chilonzor Integro": {
+        "address": "г. Ташкент, Chilonzor Integro",
+        "map": "https://maps.app.goo.gl/qkpAoaWKAMcnsNT68",
+    },
+    "Shaxriston Korzinka": {
+        "address": "г. Ташкент, Shaxriston Korzinka",
+        "map": "https://maps.app.goo.gl/wtqnQgRQKhhksgQ38",
+    },
+}
+
+FAMILY_OPTIONS = ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)"]
+EDUCATION_OPTIONS = ["Среднее", "Средне-специальное", "Высшее"]
+YES_NO_OPTIONS = ["Да", "Нет"]
+
+FORM_STEPS = [
+    {"key": "full_name", "question": "Введите имя и фамилию:", "options": None},
+    {"key": "age", "question": "Введите возраст:", "options": None},
+    {"key": "phone", "question": "Введите номер телефона:", "options": None},
+    {"key": "district", "question": "В каком районе проживаете?", "options": None},
+    {"key": "family_status", "question": "Выберите семейное положение:", "options": FAMILY_OPTIONS},
+    {"key": "education", "question": "Выберите образование:", "options": EDUCATION_OPTIONS},
+    {"key": "studying_now", "question": "Сейчас учитесь?", "options": YES_NO_OPTIONS},
+    {"key": "study_place", "question": "Где учились или учитесь?", "options": None},
+    {"key": "has_experience", "question": "Есть опыт работы?", "options": YES_NO_OPTIONS},
+    {"key": "last_job", "question": "Последнее место работы:", "options": None},
+    {"key": "work_period", "question": "Сколько там работали?", "options": None},
+    {"key": "leaving_reason", "question": "Почему ушли с работы?", "options": None},
+    {"key": "applying_position", "question": "На какую должность подаете заявку?", "options": None},
+    {"key": "preferred_branch", "question": "Какой филиал удобен для работы?", "options": None},
+    {"key": "start_date", "question": "Когда готовы выйти на работу?", "options": None},
 ]
 
+users = {}
 FONT_NAME = "DejaVuSans"
+
+# =========================
+# KEYBOARDS
+# =========================
+def keyboard_from_options(options: list[str], add_controls: bool = True) -> ReplyKeyboardMarkup:
+    rows = [[KeyboardButton(text=item)] for item in options]
+    if add_controls:
+        rows.append(
+            [
+                KeyboardButton(text=BACK_TEXT),
+                KeyboardButton(text=CANCEL_TEXT),
+                KeyboardButton(text=RESTART_TEXT),
+            ]
+        )
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def controls_only_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[
+            KeyboardButton(text=BACK_TEXT),
+            KeyboardButton(text=CANCEL_TEXT),
+            KeyboardButton(text=RESTART_TEXT),
+        ]],
+        resize_keyboard=True
+    )
+
+
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
+    return keyboard_from_options(UNITS)
+
+
+def consent_keyboard() -> ReplyKeyboardMarkup:
+    return keyboard_from_options([CONSENT_TEXT])
 
 
 # =========================
 # HELPERS
 # =========================
+def ensure_user(user_id: int):
+    if user_id not in users:
+        users[user_id] = {
+            "stage": "unit",
+            "form_index": 0,
+            "data": {},
+        }
+
+
+def reset_user(user_id: int):
+    users[user_id] = {
+        "stage": "unit",
+        "form_index": 0,
+        "data": {},
+    }
+
+
+def get_current_form_step(user_id: int):
+    idx = users[user_id]["form_index"]
+    return FORM_STEPS[idx]
+
+
 def ensure_pdf_font():
     font_paths = [
         "DejaVuSans.ttf",
@@ -98,7 +222,8 @@ def wrap_text(text: str, max_len: int = 90) -> list[str]:
         if len(candidate) <= max_len:
             current = candidate
         else:
-            lines.append(current)
+            if current:
+                lines.append(current)
             current = word
 
     if current:
@@ -126,33 +251,33 @@ def create_pdf(data: dict, tg_user_id: int, tg_username: str | None) -> str:
     y = height - 40
 
     c.setFont(FONT_NAME, 15)
-    c.drawString(40, y, "BUTTON - Nomzod anketasi")
+    c.drawString(40, y, "BUTTON - Анкета кандидата")
     y -= 30
 
     c.setFont(FONT_NAME, 11)
 
     fields = [
-        ("Bo‘lim", data.get("unit", "-")),
-        ("Vakansiya", data.get("vacancy", "-")),
-        ("Filial", data.get("branch", "-")),
-        ("F.I.Sh", data.get("full_name", "-")),
-        ("Yoshi", data.get("age", "-")),
-        ("Telefon", data.get("phone", "-")),
-        ("Tuman", data.get("district", "-")),
-        ("Oilaviy holati", data.get("family_status", "-")),
-        ("Ma’lumoti", data.get("education", "-")),
-        ("Hozir o‘qiyaptimi", data.get("studying_now", "-")),
-        ("O‘qigan / o‘qiyotgan joyi", data.get("study_place", "-")),
-        ("Ish tajribasi", data.get("has_experience", "-")),
-        ("Oxirgi ish joyi", data.get("last_job", "-")),
-        ("Ishlagan muddati", data.get("work_period", "-")),
-        ("Ishdan ketish sababi", data.get("leaving_reason", "-")),
-        ("Topshirayotgan lavozimi", data.get("applying_position", "-")),
-        ("Qulay filial", data.get("preferred_branch", "-")),
-        ("Qachondan ishlay oladi", data.get("start_date", "-")),
+        ("Подразделение", data.get("unit", "-")),
+        ("Вакансия", data.get("vacancy", "-")),
+        ("Филиал", data.get("branch", "-")),
+        ("ФИО", data.get("full_name", "-")),
+        ("Возраст", data.get("age", "-")),
+        ("Телефон", data.get("phone", "-")),
+        ("Район", data.get("district", "-")),
+        ("Семейное положение", data.get("family_status", "-")),
+        ("Образование", data.get("education", "-")),
+        ("Сейчас учится", data.get("studying_now", "-")),
+        ("Где учился/учится", data.get("study_place", "-")),
+        ("Опыт работы", data.get("has_experience", "-")),
+        ("Последняя работа", data.get("last_job", "-")),
+        ("Срок работы", data.get("work_period", "-")),
+        ("Причина ухода", data.get("leaving_reason", "-")),
+        ("Желаемая должность", data.get("applying_position", "-")),
+        ("Удобный филиал", data.get("preferred_branch", "-")),
+        ("Когда готов выйти", data.get("start_date", "-")),
         ("Telegram ID", str(tg_user_id)),
-        ("Telegram username", tg_username or "-"),
-        ("Sana", datetime.now().strftime("%d.%m.%Y %H:%M:%S")),
+        ("Username", tg_username or "-"),
+        ("Дата", datetime.now().strftime("%d.%m.%Y %H:%M:%S")),
     ]
 
     for label, value in fields:
@@ -170,31 +295,41 @@ def create_pdf(data: dict, tg_user_id: int, tg_username: str | None) -> str:
 
 
 def build_text(data: dict, user: Message) -> str:
-    username = f"@{user.from_user.username}" if user.from_user.username else "—"
+    username = f"@{user.from_user.username}" if user.from_user.username else "-"
 
     return (
-        "📥 <b>Yangi nomzod anketasi</b>\n\n"
-        f"🏢 <b>Bo‘lim:</b> {data.get('unit', '-')}\n"
-        f"💼 <b>Vakansiya:</b> {data.get('vacancy', '-')}\n"
-        f"📍 <b>Filial:</b> {data.get('branch', '-')}\n\n"
-        f"👤 <b>F.I.Sh:</b> {data.get('full_name', '-')}\n"
-        f"🎂 <b>Yoshi:</b> {data.get('age', '-')}\n"
-        f"📞 <b>Telefon:</b> {data.get('phone', '-')}\n"
-        f"🏘 <b>Tuman:</b> {data.get('district', '-')}\n"
-        f"💍 <b>Oilaviy holati:</b> {data.get('family_status', '-')}\n"
-        f"🎓 <b>Ma’lumoti:</b> {data.get('education', '-')}\n"
-        f"📚 <b>Hozir o‘qiyaptimi:</b> {data.get('studying_now', '-')}\n"
-        f"🏫 <b>O‘qigan / o‘qiyotgan joyi:</b> {data.get('study_place', '-')}\n"
-        f"💼 <b>Ish tajribasi:</b> {data.get('has_experience', '-')}\n"
-        f"🏢 <b>Oxirgi ish joyi:</b> {data.get('last_job', '-')}\n"
-        f"⏳ <b>Ishlagan muddati:</b> {data.get('work_period', '-')}\n"
-        f"❓ <b>Ishdan ketish sababi:</b> {data.get('leaving_reason', '-')}\n"
-        f"📝 <b>Topshirayotgan lavozimi:</b> {data.get('applying_position', '-')}\n"
-        f"📌 <b>Qulay filial:</b> {data.get('preferred_branch', '-')}\n"
-        f"🚀 <b>Qachondan ishlay oladi:</b> {data.get('start_date', '-')}\n\n"
-        f"🆔 <b>Telegram ID:</b> <code>{user.from_user.id}</code>\n"
-        f"🔗 <b>Username:</b> {username}"
+        "<b>Новая анкета кандидата</b>\n\n"
+        f"<b>Подразделение:</b> {data.get('unit', '-')}\n"
+        f"<b>Вакансия:</b> {data.get('vacancy', '-')}\n"
+        f"<b>Филиал:</b> {data.get('branch', '-')}\n\n"
+        f"<b>ФИО:</b> {data.get('full_name', '-')}\n"
+        f"<b>Возраст:</b> {data.get('age', '-')}\n"
+        f"<b>Телефон:</b> {data.get('phone', '-')}\n"
+        f"<b>Район:</b> {data.get('district', '-')}\n"
+        f"<b>Семейное положение:</b> {data.get('family_status', '-')}\n"
+        f"<b>Образование:</b> {data.get('education', '-')}\n"
+        f"<b>Сейчас учится:</b> {data.get('studying_now', '-')}\n"
+        f"<b>Где учился/учится:</b> {data.get('study_place', '-')}\n"
+        f"<b>Опыт работы:</b> {data.get('has_experience', '-')}\n"
+        f"<b>Последняя работа:</b> {data.get('last_job', '-')}\n"
+        f"<b>Срок работы:</b> {data.get('work_period', '-')}\n"
+        f"<b>Причина ухода:</b> {data.get('leaving_reason', '-')}\n"
+        f"<b>Желаемая должность:</b> {data.get('applying_position', '-')}\n"
+        f"<b>Удобный филиал:</b> {data.get('preferred_branch', '-')}\n"
+        f"<b>Когда готов выйти:</b> {data.get('start_date', '-')}\n\n"
+        f"<b>Telegram ID:</b> <code>{user.from_user.id}</code>\n"
+        f"<b>Username:</b> {username}"
     )
+
+
+async def send_form_question(message: Message, user_id: int):
+    step = get_current_form_step(user_id)
+    options = step["options"]
+
+    if options:
+        await message.answer(step["question"], reply_markup=keyboard_from_options(options))
+    else:
+        await message.answer(step["question"], reply_markup=controls_only_keyboard())
 
 
 async def send_to_hr(data: dict, user_message: Message):
@@ -218,7 +353,7 @@ async def send_to_hr(data: dict, user_message: Message):
         await bot.send_document(
             chat_id=HR_CHAT_ID,
             document=FSInputFile(pdf_path),
-            caption=f"📄 PDF anketa: {data.get('full_name', '-')}"
+            caption=f"PDF анкета: {data.get('full_name', '-')}"
         )
     finally:
         if os.path.exists(pdf_path):
@@ -230,29 +365,88 @@ async def send_to_hr(data: dict, user_message: Message):
     )
 
 
+async def go_back(message: Message, user_id: int):
+    ensure_user(user_id)
+    stage = users[user_id]["stage"]
+
+    if stage == "unit":
+        await message.answer("Выберите подразделение:", reply_markup=main_menu_keyboard())
+        return
+
+    if stage == "vacancy":
+        users[user_id]["stage"] = "unit"
+        await message.answer("Выберите подразделение:", reply_markup=main_menu_keyboard())
+        return
+
+    if stage == "branch":
+        users[user_id]["stage"] = "vacancy"
+        unit = users[user_id]["data"].get("unit")
+        await message.answer("Выберите вакансию:", reply_markup=keyboard_from_options(VACANCIES[unit]))
+        return
+
+    if stage == "form":
+        idx = users[user_id]["form_index"]
+        if idx > 0:
+            idx -= 1
+            users[user_id]["form_index"] = idx
+            key = FORM_STEPS[idx]["key"]
+            users[user_id]["data"].pop(key, None)
+            await send_form_question(message, user_id)
+            return
+        else:
+            users[user_id]["stage"] = "branch"
+            unit = users[user_id]["data"].get("unit")
+            await message.answer("Выберите филиал:", reply_markup=keyboard_from_options(BRANCHES[unit]))
+            return
+
+    if stage == "photo":
+        users[user_id]["stage"] = "form"
+        users[user_id]["data"].pop("photo_file_id", None)
+        users[user_id]["form_index"] = len(FORM_STEPS) - 1
+        await send_form_question(message, user_id)
+        return
+
+    if stage == "consent":
+        users[user_id]["stage"] = "photo"
+        await message.answer("Отправьте фото кандидата:", reply_markup=controls_only_keyboard())
+        return
+
+
 # =========================
-# START
+# GLOBAL COMMANDS
 # =========================
 @dp.message(CommandStart())
 async def start_handler(message: Message):
-    users[message.from_user.id] = {
-        "step_index": 0,
-        "started": True,
-    }
-
+    reset_user(message.from_user.id)
     await message.answer(
-        "Assalomu alaykum!\n"
-        "BUTTON HR botiga xush kelibsiz.\n\n"
-        "Bekor qilish uchun: /cancel\n\n"
-        f"{QUESTIONS[0][1]}"
+        "Здравствуйте.\n"
+        "Добро пожаловать в HR бот BUTTON.\n\n"
+        "Выберите подразделение:",
+        reply_markup=main_menu_keyboard()
     )
 
 
-@dp.message(F.text == "/cancel")
+@dp.message(F.text == CANCEL_TEXT)
 async def cancel_handler(message: Message):
     users.pop(message.from_user.id, None)
-    await message.answer("Bekor qilindi. Qaytadan boshlash uchun /start bosing.")
+    await message.answer(
+        "Заявка отменена.\nДля нового заполнения нажмите /start",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
+
+@dp.message(F.text == RESTART_TEXT)
+async def restart_handler(message: Message):
+    reset_user(message.from_user.id)
+    await message.answer(
+        "Заполнение начато заново.\nВыберите подразделение:",
+        reply_markup=main_menu_keyboard()
+    )
+
+
+@dp.message(F.text == BACK_TEXT)
+async def back_handler(message: Message):
+    await go_back(message, message.from_user.id)
 
 # =========================
 # PHOTO
@@ -260,26 +454,19 @@ async def cancel_handler(message: Message):
 @dp.message(F.photo)
 async def photo_handler(message: Message):
     user_id = message.from_user.id
+    ensure_user(user_id)
 
-    if user_id not in users:
-        await message.answer("Avval /start bosing.")
+    if users[user_id]["stage"] != "photo":
+        await message.answer("Сейчас фото не требуется.")
         return
 
-    user_data = users[user_id]
-
-    if user_data.get("awaiting_photo") is not True:
-        await message.answer("Hozir foto yuborish vaqti emas.")
-        return
-
-    user_data["photo_file_id"] = message.photo[-1].file_id
-    user_data["awaiting_photo"] = False
-    user_data["awaiting_consent"] = True
+    users[user_id]["data"]["photo_file_id"] = message.photo[-1].file_id
+    users[user_id]["stage"] = "consent"
 
     await message.answer(
-        "Shaxsiy ma’lumotlaringizni qayta ishlash va BUTTON kompaniyasiga yuborishga rozimisiz?\n\n"
-        "Yozing: Roziman"
+        "Подтвердите отправку анкеты:",
+        reply_markup=consent_keyboard()
     )
-
 
 # =========================
 # TEXT FLOW
@@ -287,52 +474,114 @@ async def photo_handler(message: Message):
 @dp.message()
 async def text_handler(message: Message):
     user_id = message.from_user.id
+    ensure_user(user_id)
 
-    if user_id not in users:
-        await message.answer("Botni ishga tushirish uchun /start bosing.")
+    stage = users[user_id]["stage"]
+    text = (message.text or "").strip()
+
+    if stage == "unit":
+        if text not in UNITS:
+            await message.answer("Выберите подразделение кнопкой ниже.", reply_markup=main_menu_keyboard())
+            return
+
+        users[user_id]["data"]["unit"] = text
+        users[user_id]["stage"] = "vacancy"
+        await message.answer(
+            "Выберите вакансию:",
+            reply_markup=keyboard_from_options(VACANCIES[text])
+        )
         return
 
-    user_data = users[user_id]
+    if stage == "vacancy":
+        unit = users[user_id]["data"].get("unit")
+        allowed = VACANCIES.get(unit, [])
 
-    if user_data.get("awaiting_photo"):
-        await message.answer("Iltimos, foto yuboring.")
+        if text not in allowed:
+            await message.answer("Выберите вакансию кнопкой ниже.", reply_markup=keyboard_from_options(allowed))
+            return
+
+        users[user_id]["data"]["vacancy"] = text
+        users[user_id]["stage"] = "branch"
+        await message.answer(
+            "Выберите филиал:",
+            reply_markup=keyboard_from_options(BRANCHES[unit])
+        )
         return
 
-    if user_data.get("awaiting_consent"):
-        if (message.text or "").strip().lower() != "roziman":
-            await message.answer("Davom etish uchun 'Roziman' deb yozing.")
+    if stage == "branch":
+        unit = users[user_id]["data"].get("unit")
+        allowed = BRANCHES.get(unit, [])
+
+        if text not in allowed:
+            await message.answer("Выберите филиал кнопкой ниже.", reply_markup=keyboard_from_options(allowed))
+            return
+
+        users[user_id]["data"]["branch"] = text
+
+        branch_info = LOCATIONS.get(text, {})
+        address = branch_info.get("address", "-")
+        map_link = branch_info.get("map", "-")
+
+        users[user_id]["stage"] = "form"
+        users[user_id]["form_index"] = 0
+
+        await message.answer(
+            f"<b>Филиал:</b> {text}\n"
+            f"<b>Адрес:</b> {address}\n"
+            f"<b>Карта:</b> {map_link}",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await send_form_question(message, user_id)
+        return
+
+    if stage == "form":
+        step = get_current_form_step(user_id)
+        key = step["key"]
+        options = step["options"]
+
+        if options and text not in options:
+            await message.answer(
+                "Выберите вариант кнопкой ниже.",
+                reply_markup=keyboard_from_options(options)
+            )
+            return
+
+        users[user_id]["data"][key] = text
+        users[user_id]["form_index"] += 1
+
+        if users[user_id]["form_index"] < len(FORM_STEPS):
+            await send_form_question(message, user_id)
+        else:
+            users[user_id]["stage"] = "photo"
+            await message.answer(
+                "Отправьте фото кандидата:",
+                reply_markup=controls_only_keyboard()
+            )
+        return
+
+    if stage == "photo":
+        await message.answer("Сейчас нужно отправить фото.", reply_markup=controls_only_keyboard())
+        return
+
+    if stage == "consent":
+        if text != CONSENT_TEXT:
+            await message.answer("Для отправки анкеты нажмите кнопку 'Согласен'.", reply_markup=consent_keyboard())
             return
 
         try:
-            await send_to_hr(user_data, message)
+            await send_to_hr(users[user_id]["data"], message)
             await message.answer(
-                "✅ Rahmat! So‘rovnomangiz muvaffaqiyatli yuborildi.\n"
-                "Tez orada HR mutaxassisimiz siz bilan bog‘lanadi."
+                "Анкета успешно отправлена.",
+                reply_markup=ReplyKeyboardRemove()
             )
         except Exception as e:
-            await message.answer(f"Xatolik yuz berdi: {e}")
+            await message.answer(
+                f"Ошибка при отправке: {e}",
+                reply_markup=ReplyKeyboardRemove()
+            )
 
         users.pop(user_id, None)
         return
-
-    step_index = user_data.get("step_index", 0)
-
-    if step_index >= len(QUESTIONS):
-        user_data["awaiting_photo"] = True
-        await message.answer("📷 Iltimos, o‘zingizni rasmingizni yuboring.")
-        return
-
-    field_name, question_text = QUESTIONS[step_index]
-    user_data[field_name] = message.text
-    user_data["step_index"] = step_index + 1
-
-    if user_data["step_index"] < len(QUESTIONS):
-        next_question = QUESTIONS[user_data["step_index"]][1]
-        await message.answer(next_question)
-    else:
-        user_data["awaiting_photo"] = True
-        await message.answer("📷 Iltimos, o‘zingizni rasmingizni yuboring.")
-
 
 # =========================
 # MAIN
