@@ -1,427 +1,690 @@
-import os
+import asyncio
 import logging
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from typing import Dict, Any
 
-# ===== НАСТРОЙКИ =====
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-HR_ID = int(os.getenv("HR_ID", ""))
+from aiogram import Bot, Dispatcher, F
+from aiogram.enums import ParseMode
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardRemove,
+)
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.filters import CommandStart, Command
+
+# =========================
+# CONFIG
+# =========================
+BOT_TOKEN = "8731952281:AAHlcIryCTRTF1ZBG11LFQdGfUv4mr29BgA"
+HR_CHAT_ID = -546403983  # <-- сюда вставь ID группы/канала/лички HR
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
-dp = Dispatcher(bot)
+# =========================
+# DATA
+# =========================
 
-# ===== ХРАНЕНИЕ =====
-user_lang = {}
-user_data = {}
-user_step = {}
-
-# ===== МАГАЗИНЫ =====
-stores = {
-    "Chilonzor — Andalus": {
-        "lat": 41.2756,
-        "lon": 69.2034,
-        "address_uz": "Toshkent shahri, Chilonzor tumani, Andalus savdo markazi, 2-qavat",
-        "address_ru": "г. Ташкент, Чиланзарский район, ТЦ Andalus, 2-этаж",
-    },
-    "Chilonzor — Integro": {
-        "lat": 41.2730,
-        "lon": 69.2050,
-        "address_uz": "Toshkent shahri, Chilonzor tumani, Integro savdo markazi",
-        "address_ru": "г. Ташкент, Чиланзарский район, ТЦ Integro",
-    },
-    "Risoviy bozor — Magnit": {
-        "lat": 41.2995,
-        "lon": 69.2401,
-        "address_uz": "Toshkent shahri, Mirzo Ulug‘bek tumani, Risoviy bozor, Magnit savdo markazi",
-        "address_ru": "г. Ташкент, Мирзо-Улугбекский район, Рисовый базар, ТЦ Magnit",
-    },
-    "Beruniy metro — Korzinka": {
-        "lat": 41.3447,
-        "lon": 69.2067,
-        "address_uz": "Toshkent shahri, Olmazor tumani, Beruniy metro yonida, Korzinka, 2-qavat",
-        "address_ru": "г. Ташкент, Алмазарский район, рядом с метро Beruniy, Korzinka, 2-этаж",
-    },
-    "Shaxriston — Korzinka": {
-        "lat": 41.3655,
-        "lon": 69.2922,
-        "address_uz": "Toshkent shahri, Yunusobod tumani, Shaxriston metro yonida, Korzinka, 2-qavat",
-        "address_ru": "г. Ташкент, Юнусабадский район, рядом с метро Shaxriston, Korzinka, 2-этаж",
-    },
-    "Shayxontohur — Makon supermarketi": {
-        "lat": 41.3112,
-        "lon": 69.2473,
-        "address_uz": "Toshkent shahri, Shayxontohur tumani, Zafarobod mahallasi, Makon supermarketi",
-        "address_ru": "г. Ташкент, Шайхантахурский район, махалля Zafarobod, супермаркет Makon",
-    },
-    "Ofis — Andalus Chilonzor": {
-        "lat": 41.2756,
-        "lon": 69.2034,
-        "address_uz": "Toshkent shahri, Chilonzor tumani, Andalus, BUTTON ofisi",
-        "address_ru": "г. Ташкент, Чиланзарский район, ТЦ Andalus, офис BUTTON",
-    },
-}
-
-# ===== ВАКАНСИИ =====
-vacancy_to_stores = {
-    "Sotuvchi-maslahatchi": [
-        "Chilonzor — Andalus",
-        "Chilonzor — Integro",
-        "Risoviy bozor — Magnit",
-        "Beruniy metro — Korzinka",
-        "Shaxriston — Korzinka",
-    ],
-    "Kassir": [
-        "Chilonzor — Andalus",
-        "Chilonzor — Integro",
-        "Risoviy bozor — Magnit",
-        "Beruniy metro — Korzinka",
-        "Shaxriston — Korzinka",
-    ],
-    "Oxrana": [
-        "Chilonzor — Andalus",
-        "Chilonzor — Integro",
-        "Risoviy bozor — Magnit",
-        "Beruniy metro — Korzinka",
-        "Shaxriston — Korzinka",
-        "Shayxontohur — Makon supermarketi",
-    ],
-    "Tozalik hodimasi": [
-        "Chilonzor — Andalus",
-        "Chilonzor — Integro",
-        "Risoviy bozor — Magnit",
-        "Beruniy metro — Korzinka",
-        "Shaxriston — Korzinka",
-    ],
-    "Helper": [
-        "Chilonzor — Andalus",
-        "Chilonzor — Integro",
-        "Risoviy bozor — Magnit",
-        "Beruniy metro — Korzinka",
-        "Shaxriston — Korzinka",
-    ],
-    "Omborchi": [
-        "Shayxontohur — Makon supermarketi",
-    ],
-    "Rekruter": [
-        "Ofis — Andalus Chilonzor",
-    ],
-    "Kadrovik": [
-        "Ofis — Andalus Chilonzor",
-    ],
-    "SSM": [
-        "Ofis — Andalus Chilonzor",
-    ],
-}
-
-vacancy_map_ru_to_internal = {
-    "Продавец-консультант": "Sotuvchi-maslahatchi",
-    "Кассир": "Kassir",
-    "Охранник": "Oxrana",
-    "Сотрудник по уборке": "Tozalik hodimasi",
-    "Хелпер": "Helper",
-    "Кладовщик": "Omborchi",
-    "Рекрутер": "Rekruter",
-    "Кадровик": "Kadrovik",
-    "ССМ": "SSM",
-}
-
-vacancy_map_internal_to_ru = {
-    "Sotuvchi-maslahatchi": "Продавец-консультант",
-    "Kassir": "Кассир",
-    "Oxrana": "Охранник",
-    "Tozalik hodimasi": "Сотрудник по уборке",
-    "Helper": "Хелпер",
-    "Omborchi": "Кладовщик",
-    "Rekruter": "Рекрутер",
-    "Kadrovik": "Кадровик",
-    "SSM": "ССМ",
-}
-
-TEXTS = {
+LANG_TEXT = {
     "uz": {
-        "choose_lang": "🇺🇿 Tilni tanlang / 🇷🇺 Выберите язык",
+        "welcome": "Assalomu alaykum! BUTTON kompaniyasiga xush kelibsiz.\nTilni tanlang:",
+        "choose_branch": "Filialni tanlang:",
         "choose_vacancy": "Vakansiyani tanlang:",
-        "choose_store": "Filialni tanlang:",
-        "location_question": "Shu filialda ishlash sizga qulaymi?",
-        "yes_location": "Ha, qulay ✅",
-        "no_location": "Boshqa filial 🔄",
-        "ask_name": "Ism va familiyangizni kiriting:",
-        "ask_phone": "Telefon raqamingizni yuboring:",
-        "ask_photo": "📷 Iltimos, o‘zingizni rasmingizni yuboring",
-        "ask_consent": "✅ Kiritilgan ma’lumotlar to‘g‘riligini tasdiqlaysizmi?",
-        "consent": "Roziman ✅",
-        "done": "✅ Arizangiz qabul qilindi. Tez orada siz bilan bog‘lanamiz.",
-        "wrong_photo": "❌ Iltimos, faqat rasmingizni yuboring.",
-        "share_phone": "Telefon raqamni yuborish 📞",
-        "cancel": "❌ Bekor qilish",
+        "branch_info": "Tanlangan filial: <b>{branch}</b>\n\n📍 Lokatsiya: {map_url}",
+        "start_form": "Endi qisqa anketani to‘ldiramiz.",
+        "full_name": "Ism va familiyangizni kiriting:",
+        "birth_year": "Tug‘ilgan yilingizni kiriting:",
+        "phone": "Telefon raqamingizni yuboring yoki yozing:",
+        "address": "Yashash manzilingizni kiriting:",
+        "marital": "Oilaviy holatingizni tanlang:",
+        "education": "Ma'lumotingizni tanlang:",
+        "is_studying": "Hozir o‘qiyapsizmi?",
+        "study_type": "O‘qish turini tanlang:",
+        "experience": "Ish tajribangiz bormi?",
+        "last_job": "Oxirgi ish joyingizni yozing:",
+        "last_position": "Oxirgi lavozimingizni yozing:",
+        "start_date": "Qachondan ish boshlay olasiz?",
+        "consent": "Ma'lumotlaringiz BUTTON kompaniyasida ko‘rib chiqilishiga rozimisiz?",
+        "thanks": "Rahmat! Anketangiz qabul qilindi ✅\nTez orada siz bilan bog‘lanamiz.",
+        "cancelled": "Jarayon bekor qilindi.",
+        "invalid_year": "Iltimos, tug‘ilgan yilni to‘g‘ri kiriting. Masalan: 1999",
+        "invalid_phone": "Iltimos, telefon raqamni to‘g‘ri yuboring.",
+        "choose_option": "Iltimos, tugmalardan birini tanlang.",
+        "send_contact": "📱 Raqamni yuborish",
+        "consent_yes": "Roziman ✅",
+        "consent_no": "Bekor qilish ❌",
+        "yes": "Ha",
+        "no": "Yo‘q",
+        "btn_restart": "🔄 Qayta boshlash",
+        "btn_cancel": "❌ Bekor qilish",
+        "submitted_title": "📥 Yangi anketa",
     },
     "ru": {
-        "choose_lang": "🇺🇿 Tilni tanlang / 🇷🇺 Выберите язык",
+        "welcome": "Здравствуйте! Добро пожаловать в компанию BUTTON.\nВыберите язык:",
+        "choose_branch": "Выберите филиал:",
         "choose_vacancy": "Выберите вакансию:",
-        "choose_store": "Выберите филиал:",
-        "location_question": "Вам удобно работать в этом филиале?",
-        "yes_location": "Да, удобно ✅",
-        "no_location": "Выбрать другой 🔄",
-        "ask_name": "Введите имя и фамилию:",
-        "ask_phone": "Отправьте номер телефона:",
-        "ask_photo": "📷 Пожалуйста, отправьте своё фото",
-        "ask_consent": "✅ Подтверждаете правильность данных?",
-        "consent": "Согласен ✅",
-        "done": "✅ Ваша анкета принята. Скоро с вами свяжутся.",
-        "wrong_photo": "❌ Пожалуйста, отправьте только своё фото.",
-        "share_phone": "Отправить номер 📞",
-        "cancel": "❌ Отмена",
+        "branch_info": "Выбранный филиал: <b>{branch}</b>\n\n📍 Локация: {map_url}",
+        "start_form": "Теперь заполним короткую анкету.",
+        "full_name": "Введите имя и фамилию:",
+        "birth_year": "Введите год рождения:",
+        "phone": "Отправьте номер телефона или введите его:",
+        "address": "Введите адрес проживания:",
+        "marital": "Выберите семейное положение:",
+        "education": "Выберите образование:",
+        "is_studying": "Вы сейчас учитесь?",
+        "study_type": "Выберите форму обучения:",
+        "experience": "Есть ли у вас опыт работы?",
+        "last_job": "Напишите последнее место работы:",
+        "last_position": "Напишите последнюю должность:",
+        "start_date": "Когда можете выйти на работу?",
+        "consent": "Вы согласны на обработку ваших данных компанией BUTTON?",
+        "thanks": "Спасибо! Ваша анкета принята ✅\nС вами скоро свяжутся.",
+        "cancelled": "Процесс отменён.",
+        "invalid_year": "Пожалуйста, введите корректный год рождения. Например: 1999",
+        "invalid_phone": "Пожалуйста, отправьте корректный номер телефона.",
+        "choose_option": "Пожалуйста, выберите один из вариантов кнопкой.",
+        "send_contact": "📱 Отправить номер",
+        "consent_yes": "Согласен ✅",
+        "consent_no": "Отмена ❌",
+        "yes": "Да",
+        "no": "Нет",
+        "btn_restart": "🔄 Начать заново",
+        "btn_cancel": "❌ Отмена",
+        "submitted_title": "📥 Новая анкета",
     },
 }
 
-# ===== КЛАВИАТУРЫ =====
-def lang_keyboard():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("🇺🇿 O‘zbekcha"), KeyboardButton("🇷🇺 Русский"))
-    return kb
+BRANCHES = {
+    "chilonzor_andalus": {
+        "name_uz": "Chilonzor — Andalus",
+        "name_ru": "Чиланзар — Andalus",
+        "map_url": "https://maps.app.goo.gl/oYSJC9WdxCHJJCi9A",
+        "vacancies": ["seller", "cashier", "security", "cleaner"],
+    },
+    "chilonzor_integro": {
+        "name_uz": "Chilonzor — Integro",
+        "name_ru": "Чиланзар — Integro",
+        "map_url": "https://maps.app.goo.gl/qkpAoaWKAMcnsNT68",
+        "vacancies": ["seller", "cashier", "security", "cleaner"],
+    },
+    "beruniy_korzinka": {
+        "name_uz": "Beruniy — Korzinka",
+        "name_ru": "Беруний — Korzinka",
+        "map_url": "https://maps.app.goo.gl/kJG4gRnn6H5aDm6F8",
+        "vacancies": ["seller", "cashier", "security", "cleaner"],
+    },
+    "risoviy_magnit": {
+        "name_uz": "Risoviy bozor — Magnit",
+        "name_ru": "Рисовый базар — Magnit",
+        "map_url": "https://maps.app.goo.gl/SYLeo8T8hLAQ92s76",
+        "vacancies": ["seller", "cashier", "security", "cleaner"],
+    },
+    "shaxriston_korzinka": {
+        "name_uz": "Shaxriston — Korzinka",
+        "name_ru": "Шахристон — Korzinka",
+        "map_url": "https://maps.app.goo.gl/wtqnQgRQKhhksgQ38",
+        "vacancies": ["seller", "cashier", "security", "cleaner"],
+    },
+    "shayxontohur_makon": {
+        "name_uz": "Shayxontohur — Makon",
+        "name_ru": "Шайхонтохур — Makon",
+        "map_url": "https://maps.app.goo.gl/MCsg4vuu8fiXYm8N7",
+        "vacancies": ["seller", "cashier", "security", "cleaner", "storekeeper"],
+    },
+    "office_andalus": {
+        "name_uz": "Ofis — Andalus",
+        "name_ru": "Офис — Andalus",
+        "map_url": "https://maps.app.goo.gl/GDgu8ar46ffh1zb46",
+        "vacancies": ["hr", "operator"],
+    },
+}
 
-def vacancy_keyboard(lang):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    if lang == "uz":
-        buttons = [
-            "Sotuvchi-maslahatchi", "Kassir", "Oxrana",
-            "Tozalik hodimasi", "Helper", "Omborchi",
-            "Rekruter", "Kadrovik", "SSM"
+VACANCIES = {
+    "seller": {"uz": "Sotuvchi-maslahatchi", "ru": "Продавец-консультант"},
+    "cashier": {"uz": "Kassir", "ru": "Кассир"},
+    "security": {"uz": "Oxrana", "ru": "Охрана"},
+    "cleaner": {"uz": "Tozalik hodimasi", "ru": "Уборщица"},
+    "storekeeper": {"uz": "Kladovshik", "ru": "Кладовщик"},
+    "hr": {"uz": "HR", "ru": "HR"},
+    "operator": {"uz": "Operator", "ru": "Оператор"},
+}
+
+MARITAL = {
+    "single": {"uz": "Bo‘ydoq / Turmush qurmagan", "ru": "Холост / Не замужем"},
+    "married": {"uz": "Uylangan / Turmushga chiqqan", "ru": "Женат / Замужем"},
+    "divorced": {"uz": "Ajrashgan", "ru": "Разведён(а)"},
+}
+
+EDUCATION = {
+    "secondary": {"uz": "O‘rta", "ru": "Среднее"},
+    "special": {"uz": "O‘rta maxsus", "ru": "Среднее специальное"},
+    "higher": {"uz": "Oliy", "ru": "Высшее"},
+    "unfinished_higher": {"uz": "Tugallanmagan oliy", "ru": "Неоконченное высшее"},
+}
+
+STUDY_TYPE = {
+    "day": {"uz": "Kunduzgi", "ru": "Очное"},
+    "evening": {"uz": "Kechki", "ru": "Вечернее"},
+    "external": {"uz": "Sirtqi", "ru": "Заочное"},
+}
+
+# =========================
+# FSM
+# =========================
+
+class CandidateForm(StatesGroup):
+    language = State()
+    branch = State()
+    vacancy = State()
+    full_name = State()
+    birth_year = State()
+    phone = State()
+    address = State()
+    marital = State()
+    education = State()
+    is_studying = State()
+    study_type = State()
+    experience = State()
+    last_job = State()
+    last_position = State()
+    start_date = State()
+    consent = State()
+
+# =========================
+# HELPERS
+# =========================
+
+def get_lang_text(lang: str, key: str) -> str:
+    return LANG_TEXT[lang][key]
+
+def branch_title(branch_key: str, lang: str) -> str:
+    return BRANCHES[branch_key]["name_uz"] if lang == "uz" else BRANCHES[branch_key]["name_ru"]
+
+def vacancy_title(vacancy_key: str, lang: str) -> str:
+    return VACANCIES[vacancy_key][lang]
+
+def inline_lang_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="O‘zbekcha", callback_data="lang_uz")],
+        [InlineKeyboardButton(text="Русский", callback_data="lang_ru")],
+    ])
+
+def branches_keyboard(lang: str) -> InlineKeyboardMarkup:
+    buttons = []
+    for key, item in BRANCHES.items():
+        title = item["name_uz"] if lang == "uz" else item["name_ru"]
+        buttons.append([InlineKeyboardButton(text=title, callback_data=f"branch_{key}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def vacancies_keyboard(lang: str, branch_key: str) -> InlineKeyboardMarkup:
+    buttons = []
+    for vacancy_key in BRANCHES[branch_key]["vacancies"]:
+        buttons.append([
+            InlineKeyboardButton(
+                text=vacancy_title(vacancy_key, lang),
+                callback_data=f"vacancy_{vacancy_key}"
+            )
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def marital_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=MARITAL["single"][lang], callback_data="marital_single")],
+        [InlineKeyboardButton(text=MARITAL["married"][lang], callback_data="marital_married")],
+        [InlineKeyboardButton(text=MARITAL["divorced"][lang], callback_data="marital_divorced")],
+    ])
+
+def education_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=EDUCATION["secondary"][lang], callback_data="edu_secondary")],
+        [InlineKeyboardButton(text=EDUCATION["special"][lang], callback_data="edu_special")],
+        [InlineKeyboardButton(text=EDUCATION["higher"][lang], callback_data="edu_higher")],
+        [InlineKeyboardButton(text=EDUCATION["unfinished_higher"][lang], callback_data="edu_unfinished_higher")],
+    ])
+
+def yes_no_keyboard(lang: str, prefix: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=get_lang_text(lang, "yes"), callback_data=f"{prefix}_yes"),
+            InlineKeyboardButton(text=get_lang_text(lang, "no"), callback_data=f"{prefix}_no"),
         ]
-    else:
-        buttons = [
-            "Продавец-консультант", "Кассир", "Охранник",
-            "Сотрудник по уборке", "Хелпер", "Кладовщик",
-            "Рекрутер", "Кадровик", "ССМ"
-        ]
-    for btn in buttons:
-        kb.add(KeyboardButton(btn))
-    kb.add(KeyboardButton(TEXTS[lang]["cancel"]))
-    return kb
+    ])
 
-def store_keyboard(store_list, lang):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    for store in store_list:
-        kb.add(KeyboardButton(store))
-    kb.add(KeyboardButton(TEXTS[lang]["cancel"]))
-    return kb
+def study_type_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=STUDY_TYPE["day"][lang], callback_data="study_day")],
+        [InlineKeyboardButton(text=STUDY_TYPE["evening"][lang], callback_data="study_evening")],
+        [InlineKeyboardButton(text=STUDY_TYPE["external"][lang], callback_data="study_external")],
+    ])
 
-def location_confirm_keyboard(lang):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton(TEXTS[lang]["yes_location"]))
-    kb.add(KeyboardButton(TEXTS[lang]["no_location"]))
-    kb.add(KeyboardButton(TEXTS[lang]["cancel"]))
-    return kb
+def consent_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_lang_text(lang, "consent_yes"), callback_data="consent_yes")],
+        [InlineKeyboardButton(text=get_lang_text(lang, "consent_no"), callback_data="consent_no")],
+    ])
 
-def phone_keyboard(lang):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton(TEXTS[lang]["share_phone"], request_contact=True))
-    kb.add(KeyboardButton(TEXTS[lang]["cancel"]))
-    return kb
-
-def consent_keyboard(lang):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton(TEXTS[lang]["consent"]))
-    kb.add(KeyboardButton(TEXTS[lang]["cancel"]))
-    return kb
-
-# ===== ВСПОМОГАТЕЛЬНЫЕ =====
-def reset_user(user_id):
-    user_data[user_id] = {}
-    user_step[user_id] = "choose_lang"
-
-def get_lang(user_id):
-    return user_lang.get(user_id, "uz")
-
-async def send_to_hr(user_id):
-    data = user_data.get(user_id, {})
-    lang = get_lang(user_id)
-    vacancy = data.get("vacancy", "-")
-    if lang == "ru":
-        vacancy = vacancy_map_internal_to_ru.get(vacancy, vacancy)
-
-    text = (
-        f"📥 <b>Новый кандидат</b>\n\n"
-        f"<b>Язык:</b> {'O‘zbekcha' if lang == 'uz' else 'Русский'}\n"
-        f"<b>Вакансия:</b> {vacancy}\n"
-        f"<b>Филиал:</b> {data.get('store', '-')}\n"
-        f"<b>ФИО:</b> {data.get('full_name', '-')}\n"
-        f"<b>Телефон:</b> {data.get('phone', '-')}\n"
+def contact_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=get_lang_text(lang, "send_contact"), request_contact=True)]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
 
-    photo_id = data.get("photo_file_id")
-    if photo_id:
-        await bot.send_photo(HR_ID, photo_id, caption=text)
-    else:
-        await bot.send_message(HR_ID, text)
+def restart_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=get_lang_text(lang, "btn_restart"))],
+            [KeyboardButton(text=get_lang_text(lang, "btn_cancel"))],
+        ],
+        resize_keyboard=True
+    )
 
-# ===== СТАРТ =====
-@dp.message_handler(commands=["start"])
-async def start_cmd(message: types.Message):
-    user_id = message.from_user.id
-    reset_user(user_id)
-    await message.answer(TEXTS["uz"]["choose_lang"], reply_markup=lang_keyboard())
+def normalize_phone(phone: str) -> str:
+    return phone.strip().replace(" ", "").replace("-", "")
 
-# ===== ОТМЕНА =====
-@dp.message_handler(lambda m: m.text in ["❌ Bekor qilish", "❌ Отмена"])
-async def cancel_form(message: types.Message):
-    user_id = message.from_user.id
-    reset_user(user_id)
-    await message.answer("Bekor qilindi / Отменено. Qayta boshlash uchun /start", reply_markup=ReplyKeyboardRemove())
+def valid_phone(phone: str) -> bool:
+    phone = normalize_phone(phone)
+    return phone.startswith("+") and len(phone) >= 9
 
-# ===== ЯЗЫК =====
-@dp.message_handler(lambda m: m.text in ["🇺🇿 O‘zbekcha", "🇷🇺 Русский"])
-async def choose_lang(message: types.Message):
-    user_id = message.from_user.id
-    user_lang[user_id] = "uz" if message.text == "🇺🇿 O‘zbekcha" else "ru"
-    lang = get_lang(user_id)
-    user_step[user_id] = "vacancy"
-    await message.answer(TEXTS[lang]["choose_vacancy"], reply_markup=vacancy_keyboard(lang))
+def format_value(value: str) -> str:
+    return value if value else "-"
 
-# ===== ВАКАНСИЯ =====
-@dp.message_handler(lambda m: m.text in list(vacancy_to_stores.keys()) + list(vacancy_map_ru_to_internal.keys()))
-async def choose_vacancy(message: types.Message):
-    user_id = message.from_user.id
-    lang = get_lang(user_id)
+async def start_form_flow(callback: CallbackQuery, state: FSMContext, lang: str, branch_key: str, vacancy_key: str):
+    branch_name = branch_title(branch_key, lang)
+    map_url = BRANCHES[branch_key]["map_url"]
 
-    vacancy = message.text
-    if vacancy in vacancy_map_ru_to_internal:
-        vacancy = vacancy_map_ru_to_internal[vacancy]
+    await callback.message.edit_text(
+        get_lang_text(lang, "branch_info").format(branch=branch_name, map_url=map_url),
+        parse_mode=ParseMode.HTML
+    )
+    await callback.message.answer(get_lang_text(lang, "start_form"))
+    await callback.message.answer(get_lang_text(lang, "full_name"))
+    await state.set_state(CandidateForm.full_name)
 
-    user_data.setdefault(user_id, {})
-    user_data[user_id]["vacancy"] = vacancy
-    user_step[user_id] = "store"
+def get_readable_data(data: Dict[str, Any]) -> str:
+    lang = data["lang"]
 
-    stores_list = vacancy_to_stores.get(vacancy, [])
-    await message.answer(TEXTS[lang]["choose_store"], reply_markup=store_keyboard(stores_list, lang))
+    marital_text = MARITAL.get(data.get("marital", ""), {}).get(lang, data.get("marital", "-"))
+    education_text = EDUCATION.get(data.get("education", ""), {}).get(lang, data.get("education", "-"))
+    study_type_text = STUDY_TYPE.get(data.get("study_type", ""), {}).get(lang, data.get("study_type", "-"))
 
-# ===== МАГАЗИН =====
-@dp.message_handler(lambda m: m.text in stores)
-async def choose_store(message: types.Message):
-    user_id = message.from_user.id
-    lang = get_lang(user_id)
+    yes_text = get_lang_text(lang, "yes")
+    no_text = get_lang_text(lang, "no")
 
-    vacancy = user_data.get(user_id, {}).get("vacancy")
-    if not vacancy:
-        user_step[user_id] = "vacancy"
-        await message.answer(TEXTS[lang]["choose_vacancy"], reply_markup=vacancy_keyboard(lang))
-        return
+    experience_text = yes_text if data.get("experience") == "yes" else no_text
+    studying_text = yes_text if data.get("is_studying") == "yes" else no_text
 
-    if message.text not in vacancy_to_stores.get(vacancy, []):
-        await message.answer(TEXTS[lang]["choose_store"], reply_markup=store_keyboard(vacancy_to_stores[vacancy], lang))
-        return
+    branch_name = branch_title(data["branch"], lang)
+    vacancy_name = vacancy_title(data["vacancy"], lang)
+    map_url = BRANCHES[data["branch"]]["map_url"]
 
-    user_data[user_id]["store"] = message.text
-    user_step[user_id] = "confirm_store"
+    return (
+        f"<b>{get_lang_text(lang, 'submitted_title')}</b>\n\n"
+        f"<b>Til / Язык:</b> {lang}\n"
+        f"<b>Filial / Филиал:</b> {branch_name}\n"
+        f"<b>Vakansiya / Вакансия:</b> {vacancy_name}\n"
+        f"<b>Lokatsiya:</b> {map_url}\n\n"
+        f"<b>1. F.I.Sh / ФИО:</b> {format_value(data.get('full_name'))}\n"
+        f"<b>2. Tug‘ilgan yil / Год рождения:</b> {format_value(data.get('birth_year'))}\n"
+        f"<b>3. Telefon / Телефон:</b> {format_value(data.get('phone'))}\n"
+        f"<b>4. Manzil / Адрес:</b> {format_value(data.get('address'))}\n"
+        f"<b>5. Oilaviy holati / Семейное положение:</b> {format_value(marital_text)}\n"
+        f"<b>6. Ma'lumoti / Образование:</b> {format_value(education_text)}\n"
+        f"<b>7. O‘qiydimi / Учится:</b> {studying_text}\n"
+        f"<b>8. O‘qish turi / Форма обучения:</b> {format_value(study_type_text)}\n"
+        f"<b>9. Tajriba / Опыт работы:</b> {experience_text}\n"
+        f"<b>10. Oxirgi ish joyi / Последнее место работы:</b> {format_value(data.get('last_job'))}\n"
+        f"<b>11. Oxirgi lavozimi / Последняя должность:</b> {format_value(data.get('last_position'))}\n"
+        f"<b>12. Qachondan chiqadi / Когда может выйти:</b> {format_value(data.get('start_date'))}\n"
+    )
 
-    store = stores[message.text]
-    address = store["address_uz"] if lang == "uz" else store["address_ru"]
+# =========================
+# HANDLERS
+# =========================
 
-    await bot.send_location(message.chat.id, store["lat"], store["lon"])
+dp = Dispatcher(storage=MemoryStorage())
+
+@dp.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
+    await state.set_state(CandidateForm.language)
     await message.answer(
-        f"🏬 {message.text}\n📍 {address}\n\n{TEXTS[lang]['location_question']}",
-        reply_markup=location_confirm_keyboard(lang)
+        "Assalomu alaykum / Здравствуйте!\nBUTTON kompaniyasiga xush kelibsiz.\nВыберите язык / Tilni tanlang:",
+        reply_markup=inline_lang_keyboard()
     )
 
-# ===== ПОДТВЕРЖДЕНИЕ ФИЛИАЛА =====
-@dp.message_handler(lambda m: m.text in ["Ha, qulay ✅", "Boshqa filial 🔄", "Да, удобно ✅", "Выбрать другой 🔄"])
-async def confirm_store(message: types.Message):
-    user_id = message.from_user.id
-    lang = get_lang(user_id)
+@dp.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Jarayon bekor qilindi / Процесс отменён.", reply_markup=ReplyKeyboardRemove())
 
-    if message.text == TEXTS[lang]["yes_location"]:
-        user_step[user_id] = "name"
-        await message.answer(TEXTS[lang]["ask_name"], reply_markup=ReplyKeyboardRemove())
+@dp.message(F.text.in_(["🔄 Qayta boshlash", "🔄 Начать заново"]))
+async def restart_handler(message: Message, state: FSMContext):
+    await state.clear()
+    await state.set_state(CandidateForm.language)
+    await message.answer(
+        "Assalomu alaykum / Здравствуйте!\nBUTTON kompaniyasiga xush kelibsiz.\nВыберите язык / Tilni tanlang:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await message.answer(
+        "Выберите язык / Tilni tanlang:",
+        reply_markup=inline_lang_keyboard()
+    )
+
+@dp.message(F.text.in_(["❌ Bekor qilish", "❌ Отмена"]))
+async def cancel_text_handler(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Jarayon bekor qilindi / Процесс отменён.", reply_markup=ReplyKeyboardRemove())
+
+@dp.callback_query(F.data.startswith("lang_"))
+async def choose_language(callback: CallbackQuery, state: FSMContext):
+    lang = callback.data.split("_")[1]
+    await state.update_data(lang=lang)
+    await state.set_state(CandidateForm.branch)
+
+    await callback.message.edit_text(
+        get_lang_text(lang, "choose_branch"),
+        reply_markup=branches_keyboard(lang)
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("branch_"))
+async def choose_branch(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+    branch_key = callback.data.replace("branch_", "")
+
+    await state.update_data(branch=branch_key)
+    await state.set_state(CandidateForm.vacancy)
+
+    await callback.message.edit_text(
+        get_lang_text(lang, "choose_vacancy"),
+        reply_markup=vacancies_keyboard(lang, branch_key)
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("vacancy_"))
+async def choose_vacancy(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+    branch_key = data["branch"]
+    vacancy_key = callback.data.replace("vacancy_", "")
+
+    await state.update_data(vacancy=vacancy_key)
+    await start_form_flow(callback, state, lang, branch_key, vacancy_key)
+    await callback.answer()
+
+@dp.message(CandidateForm.full_name)
+async def form_full_name(message: Message, state: FSMContext):
+    await state.update_data(full_name=message.text.strip())
+    data = await state.get_data()
+    lang = data["lang"]
+
+    await state.set_state(CandidateForm.birth_year)
+    await message.answer(get_lang_text(lang, "birth_year"))
+
+@dp.message(CandidateForm.birth_year)
+async def form_birth_year(message: Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+    text = message.text.strip()
+
+    if not text.isdigit() or len(text) != 4 or int(text) < 1950 or int(text) > 2010:
+        await message.answer(get_lang_text(lang, "invalid_year"))
+        return
+
+    await state.update_data(birth_year=text)
+    await state.set_state(CandidateForm.phone)
+    await message.answer(
+        get_lang_text(lang, "phone"),
+        reply_markup=contact_keyboard(lang)
+    )
+
+@dp.message(CandidateForm.phone, F.contact)
+async def form_phone_contact(message: Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+
+    phone = message.contact.phone_number
+    if not phone.startswith("+"):
+        phone = "+" + phone
+
+    await state.update_data(phone=phone)
+    await state.set_state(CandidateForm.address)
+    await message.answer(
+        get_lang_text(lang, "address"),
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+@dp.message(CandidateForm.phone)
+async def form_phone_text(message: Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+
+    phone = normalize_phone(message.text)
+    if not valid_phone(phone):
+        await message.answer(get_lang_text(lang, "invalid_phone"))
+        return
+
+    await state.update_data(phone=phone)
+    await state.set_state(CandidateForm.address)
+    await message.answer(
+        get_lang_text(lang, "address"),
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+@dp.message(CandidateForm.address)
+async def form_address(message: Message, state: FSMContext):
+    await state.update_data(address=message.text.strip())
+    data = await state.get_data()
+    lang = data["lang"]
+
+    await state.set_state(CandidateForm.marital)
+    await message.answer(
+        get_lang_text(lang, "marital"),
+        reply_markup=marital_keyboard(lang)
+    )
+
+@dp.callback_query(CandidateForm.marital, F.data.startswith("marital_"))
+async def form_marital(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+
+    marital_key = callback.data.replace("marital_", "")
+    await state.update_data(marital=marital_key)
+    await state.set_state(CandidateForm.education)
+
+    await callback.message.edit_text(
+        get_lang_text(lang, "education"),
+        reply_markup=education_keyboard(lang)
+    )
+    await callback.answer()
+
+@dp.callback_query(CandidateForm.education, F.data.startswith("edu_"))
+async def form_education(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+
+    edu_key = callback.data.replace("edu_", "")
+    await state.update_data(education=edu_key)
+    await state.set_state(CandidateForm.is_studying)
+
+    await callback.message.edit_text(
+        get_lang_text(lang, "is_studying"),
+        reply_markup=yes_no_keyboard(lang, "studying")
+    )
+    await callback.answer()
+
+@dp.callback_query(CandidateForm.is_studying, F.data.startswith("studying_"))
+async def form_is_studying(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+
+    answer = callback.data.replace("studying_", "")
+    await state.update_data(is_studying=answer)
+
+    if answer == "yes":
+        await state.set_state(CandidateForm.study_type)
+        await callback.message.edit_text(
+            get_lang_text(lang, "study_type"),
+            reply_markup=study_type_keyboard(lang)
+        )
     else:
-        vacancy = user_data.get(user_id, {}).get("vacancy")
-        if not vacancy:
-            user_step[user_id] = "vacancy"
-            await message.answer(TEXTS[lang]["choose_vacancy"], reply_markup=vacancy_keyboard(lang))
-            return
-        user_step[user_id] = "store"
-        await message.answer(TEXTS[lang]["choose_store"], reply_markup=store_keyboard(vacancy_to_stores[vacancy], lang))
+        await state.update_data(study_type="-")
+        await state.set_state(CandidateForm.experience)
+        await callback.message.edit_text(
+            get_lang_text(lang, "experience"),
+            reply_markup=yes_no_keyboard(lang, "exp")
+        )
+    await callback.answer()
 
-# ===== КОНТАКТ =====
-@dp.message_handler(content_types=types.ContentType.CONTACT)
-async def get_contact(message: types.Message):
-    user_id = message.from_user.id
-    lang = get_lang(user_id)
+@dp.callback_query(CandidateForm.study_type, F.data.startswith("study_"))
+async def form_study_type(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
 
-    if user_step.get(user_id) != "phone":
+    study_key = callback.data.replace("study_", "")
+    await state.update_data(study_type=study_key)
+    await state.set_state(CandidateForm.experience)
+
+    await callback.message.edit_text(
+        get_lang_text(lang, "experience"),
+        reply_markup=yes_no_keyboard(lang, "exp")
+    )
+    await callback.answer()
+
+@dp.callback_query(CandidateForm.experience, F.data.startswith("exp_"))
+async def form_experience(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data["lang"]
+
+    answer = callback.data.replace("exp_", "")
+    await state.update_data(experience=answer)
+
+    if answer == "yes":
+        await state.set_state(CandidateForm.last_job)
+        await callback.message.edit_text(get_lang_text(lang, "last_job"))
+    else:
+        await state.update_data(last_job="-", last_position="-")
+        await state.set_state(CandidateForm.start_date)
+        await callback.message.edit_text(get_lang_text(lang, "start_date"))
+    await callback.answer()
+
+@dp.message(CandidateForm.last_job)
+async def form_last_job(message: Message, state: FSMContext):
+    await state.update_data(last_job=message.text.strip())
+    data = await state.get_data()
+    lang = data["lang"]
+
+    await state.set_state(CandidateForm.last_position)
+    await message.answer(get_lang_text(lang, "last_position"))
+
+@dp.message(CandidateForm.last_position)
+async def form_last_position(message: Message, state: FSMContext):
+    await state.update_data(last_position=message.text.strip())
+    data = await state.get_data()
+    lang = data["lang"]
+
+    await state.set_state(CandidateForm.start_date)
+    await message.answer(get_lang_text(lang, "start_date"))
+
+@dp.message(CandidateForm.start_date)
+async def form_start_date(message: Message, state: FSMContext):
+    await state.update_data(start_date=message.text.strip())
+    data = await state.get_data()
+    lang = data["lang"]
+
+    await state.set_state(CandidateForm.consent)
+    await message.answer(
+        get_lang_text(lang, "consent"),
+        reply_markup=consent_keyboard(lang)
+    )
+
+@dp.callback_query(CandidateForm.consent, F.data == "consent_yes")
+async def consent_yes(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    lang = data["lang"]
+
+    text = get_readable_data(data)
+
+    try:
+        await bot.send_message(
+            chat_id=HR_CHAT_ID,
+            text=text,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logging.exception("HR chatga yuborishda xatolik: %s", e)
+        await callback.message.answer("Xatolik yuz berdi. HR_CHAT_ID yoki bot huquqlarini tekshiring.")
+        await callback.answer()
         return
 
-    user_data[user_id]["phone"] = message.contact.phone_number
-    user_step[user_id] = "photo"
-    await message.answer(TEXTS[lang]["ask_photo"], reply_markup=ReplyKeyboardRemove())
+    await callback.message.edit_text(get_lang_text(lang, "thanks"))
+    await callback.message.answer(
+        get_lang_text(lang, "thanks"),
+        reply_markup=restart_keyboard(lang)
+    )
+    await state.clear()
+    await callback.answer()
 
-# ===== ФОТО =====
-@dp.message_handler(content_types=types.ContentType.PHOTO)
-async def get_photo(message: types.Message):
-    user_id = message.from_user.id
-    lang = get_lang(user_id)
+@dp.callback_query(CandidateForm.consent, F.data == "consent_no")
+async def consent_no(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
 
-    if user_step.get(user_id) != "photo":
+    await state.clear()
+    await callback.message.edit_text(get_lang_text(lang, "cancelled"))
+    await callback.message.answer(
+        get_lang_text(lang, "cancelled"),
+        reply_markup=restart_keyboard(lang)
+    )
+    await callback.answer()
+
+# =========================
+# FALLBACKS
+# =========================
+
+@dp.callback_query()
+async def unknown_callback(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
+    await callback.answer(get_lang_text(lang, "choose_option"), show_alert=False)
+
+@dp.message()
+async def fallback_message(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is None:
+        await message.answer("Botni ishga tushirish uchun /start bosing.")
         return
 
-    user_data[user_id]["photo_file_id"] = message.photo[-1].file_id
-    user_step[user_id] = "consent"
-    await message.answer(TEXTS[lang]["ask_consent"], reply_markup=consent_keyboard(lang))
+    data = await state.get_data()
+    lang = data.get("lang", "uz")
+    await message.answer(get_lang_text(lang, "choose_option"))
 
-# ===== СОГЛАСИЕ =====
-@dp.message_handler(lambda m: m.text in ["Roziman ✅", "Согласен ✅"])
-async def final_consent(message: types.Message):
-    user_id = message.from_user.id
-    lang = get_lang(user_id)
+# =========================
+# MAIN
+# =========================
 
-    if user_step.get(user_id) != "consent":
-        return
+async def main():
+    if BOT_TOKEN == "PASTE_YOUR_BOT_TOKEN_HERE":
+        raise ValueError("BOT_TOKEN ni kiriting.")
+    if HR_CHAT_ID == -1001234567890:
+        raise ValueError("HR_CHAT_ID ni kiriting.")
 
-    await send_to_hr(user_id)
-    user_step[user_id] = "done"
-    await message.answer(TEXTS[lang]["done"], reply_markup=ReplyKeyboardRemove())
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
 
-# ===== ОСНОВНОЙ ПОТОК =====
-@dp.message_handler()
-async def main_flow(message: types.Message):
-    user_id = message.from_user.id
-    lang = get_lang(user_id)
-
-    if user_id not in user_step:
-        reset_user(user_id)
-        await message.answer(TEXTS["uz"]["choose_lang"], reply_markup=lang_keyboard())
-        return
-
-    step = user_step.get(user_id)
-
-    if step == "name":
-        user_data[user_id]["full_name"] = message.text
-        user_step[user_id] = "phone"
-        await message.answer(TEXTS[lang]["ask_phone"], reply_markup=phone_keyboard(lang))
-        return
-
-    if step == "phone":
-        user_data[user_id]["phone"] = message.text
-        user_step[user_id] = "photo"
-        await message.answer(TEXTS[lang]["ask_photo"], reply_markup=ReplyKeyboardRemove())
-        return
-
-    if step == "photo":
-        await message.answer(TEXTS[lang]["wrong_photo"])
-        return
-
-    if step == "vacancy":
-        await message.answer(TEXTS[lang]["choose_vacancy"], reply_markup=vacancy_keyboard(lang))
-        return
-
-    if step == "store":
-        vacancy = user_data.get(user_id, {}).get("vacancy")
-        if vacancy:
-            await message.answer(TEXTS[lang]["choose_store"], reply_markup=store_keyboard(vacancy_to_stores[vacancy], lang))
-        else:
-            await message.answer(TEXTS[lang]["choose_vacancy"], reply_markup=vacancy_keyboard(lang))
-        return
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
