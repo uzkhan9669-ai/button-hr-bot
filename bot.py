@@ -4,8 +4,8 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 # ===== НАСТРОЙКИ =====
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8731952281:AAHlcIryCTRTF1ZBG11LFQdGfUv4mr29BgA")
-HR_ID = int(os.getenv("HR_ID", "546403983"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+HR_ID = int(os.getenv("HR_ID", ""))
 
 logging.basicConfig(level=logging.INFO)
 
