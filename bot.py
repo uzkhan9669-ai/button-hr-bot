@@ -39,7 +39,13 @@ bot = Bot(
 dp = Dispatcher()
 
 # =========================
-# TEXT CONSTANTS
+# FONT SETTINGS
+# =========================
+FONT_REGULAR = "DejaVuSans"
+FONT_BOLD = "DejaVuSansBold"
+
+# =========================
+# BUTTON TEXTS
 # =========================
 BACK_TEXT_RU = "⬅️ Назад"
 CANCEL_TEXT_RU = "❌ Отмена"
@@ -53,13 +59,13 @@ RESTART_TEXT_UZ = "🔄 Qaytadan"
 CONSENT_TEXT_UZ = "✅ Roziman"
 LANG_UZ = "🇺🇿 O‘zbek tili"
 
-FONT_REGULAR = "DejaVuSans"
-FONT_BOLD = "DejaVuSansBold"
-
+# =========================
+# TEMP STORAGE
+# =========================
 users = {}
 
 # =========================
-# DATA
+# TEXTS
 # =========================
 TEXTS = {
     "ru": {
@@ -74,8 +80,7 @@ TEXTS = {
         "branch_info": "<b>📍 Филиал:</b> {branch}\n<b>🏠 Адрес:</b> {address}\n<b>🗺 Карта:</b> {map_link}",
         "photo_request": "📸 Отправьте фото кандидата:",
         "photo_not_needed": "Сейчас фото не требуется.",
-        "photo_required": "Сейчас нужно отправить фото.",
-        "consent_request": "📨 Подтвердите отправку анкеты:",
+        "consent_request": "📨 Отправить анкету?",
         "consent_invalid": "Для отправки анкеты нажмите кнопку 'Согласен'.",
         "success": "✅ Анкета успешно отправлена.",
         "cancelled": "❌ Заявка отменена.\nДля нового заполнения нажмите /start",
@@ -137,8 +142,7 @@ TEXTS = {
         "branch_info": "<b>📍 Filial:</b> {branch}\n<b>🏠 Manzil:</b> {address}\n<b>🗺 Xarita:</b> {map_link}",
         "photo_request": "📸 Nomzod rasmini yuboring:",
         "photo_not_needed": "Hozir foto kerak emas.",
-        "photo_required": "Hozir foto yuborish kerak.",
-        "consent_request": "📨 Anketani yuborishni tasdiqlang:",
+        "consent_request": "📨 Anketani yuborishga rozimisiz?",
         "consent_invalid": "Yuborish uchun 'Roziman' tugmasini bosing.",
         "success": "✅ Anketa muvaffaqiyatli yuborildi.",
         "cancelled": "❌ Ariza bekor qilindi.\nQayta boshlash uchun /start bosing",
@@ -310,7 +314,6 @@ def main_menu_keyboard(lang: str) -> ReplyKeyboardMarkup:
 def consent_keyboard(lang: str) -> ReplyKeyboardMarkup:
     _, _, _, consent_text = get_control_texts(lang)
     return keyboard_from_options([consent_text], lang)
-
 
 # =========================
 # HELPERS
@@ -560,7 +563,10 @@ async def go_back(message: Message, user_id: int):
     if stage == "branch":
         users[user_id]["stage"] = "vacancy"
         unit = users[user_id]["data"].get("unit")
-        await message.answer(t["choose_vacancy"], reply_markup=keyboard_from_options(VACANCIES[lang][unit], lang))
+        await message.answer(
+            t["choose_vacancy"],
+            reply_markup=keyboard_from_options(VACANCIES[lang][unit], lang)
+        )
         return
 
     if stage == "form":
@@ -572,9 +578,13 @@ async def go_back(message: Message, user_id: int):
             users[user_id]["data"].pop(key, None)
             await send_form_question(message, user_id)
             return
+
         users[user_id]["stage"] = "branch"
         unit = users[user_id]["data"].get("unit")
-        await message.answer(t["choose_branch"], reply_markup=keyboard_from_options(BRANCHES[lang][unit], lang))
+        await message.answer(
+            t["choose_branch"],
+            reply_markup=keyboard_from_options(BRANCHES[lang][unit], lang)
+        )
         return
 
     if stage == "photo":
@@ -587,8 +597,6 @@ async def go_back(message: Message, user_id: int):
     if stage == "consent":
         users[user_id]["stage"] = "photo"
         await message.answer(t["photo_request"], reply_markup=controls_only_keyboard(lang))
-        return
-
 
 # =========================
 # COMMANDS
@@ -598,9 +606,59 @@ async def start_handler(message: Message):
     reset_user(message.from_user.id)
     await message.answer(TEXTS["ru"]["start"], reply_markup=language_keyboard())
 
+# =========================
+# PHOTO FIRST
+# =========================
+@dp.message(F.photo)
+async def photo_handler(message: Message):
+    user_id = message.from_user.id
+    ensure_user(user_id)
+    lang = get_lang(user_id)
+    t = TEXTS[lang]
 
-@dp.message()
+    if users[user_id]["stage"] != "photo":
+        return
+
+    users[user_id]["data"]["photo_file_id"] = message.photo[-1].file_id
+    users[user_id]["stage"] = "consent"
+
+    await message.answer(
+        t["consent_request"],
+        reply_markup=consent_keyboard(lang)
+    )
+
+
+@dp.message(F.document)
+async def document_handler(message: Message):
+    user_id = message.from_user.id
+    ensure_user(user_id)
+    lang = get_lang(user_id)
+    t = TEXTS[lang]
+
+    if users[user_id]["stage"] != "photo":
+        return
+
+    mime_type = message.document.mime_type or ""
+    if not mime_type.startswith("image/"):
+        await message.answer(t["photo_request"], reply_markup=controls_only_keyboard(lang))
+        return
+
+    users[user_id]["data"]["photo_file_id"] = message.document.file_id
+    users[user_id]["stage"] = "consent"
+
+    await message.answer(
+        t["consent_request"],
+        reply_markup=consent_keyboard(lang)
+    )
+
+# =========================
+# TEXT HANDLER
+# =========================
+@dp.message(F.text)
 async def text_handler(message: Message):
+    if message.photo or message.document:
+        return
+
     user_id = message.from_user.id
     ensure_user(user_id)
 
@@ -615,7 +673,7 @@ async def text_handler(message: Message):
 
     if text in [RESTART_TEXT_RU, RESTART_TEXT_UZ]:
         reset_user(user_id)
-        await message.answer(TEXTS["ru"]["start"], reply_markup=language_keyboard())
+        await message.answer(TEXTS["ru"]["restarted"], reply_markup=language_keyboard())
         return
 
     if text in [BACK_TEXT_RU, BACK_TEXT_UZ]:
@@ -628,6 +686,7 @@ async def text_handler(message: Message):
             users[user_id]["stage"] = "unit"
             await message.answer(TEXTS["uz"]["choose_unit"], reply_markup=main_menu_keyboard("uz"))
             return
+
         if text == LANG_RU:
             users[user_id]["lang"] = "ru"
             users[user_id]["stage"] = "unit"
@@ -647,7 +706,10 @@ async def text_handler(message: Message):
 
         users[user_id]["data"]["unit"] = text
         users[user_id]["stage"] = "vacancy"
-        await message.answer(t["choose_vacancy"], reply_markup=keyboard_from_options(VACANCIES[lang][text], lang))
+        await message.answer(
+            t["choose_vacancy"],
+            reply_markup=keyboard_from_options(VACANCIES[lang][text], lang)
+        )
         return
 
     if stage == "vacancy":
@@ -660,7 +722,10 @@ async def text_handler(message: Message):
 
         users[user_id]["data"]["vacancy"] = text
         users[user_id]["stage"] = "branch"
-        await message.answer(t["choose_branch"], reply_markup=keyboard_from_options(BRANCHES[lang][unit], lang))
+        await message.answer(
+            t["choose_branch"],
+            reply_markup=keyboard_from_options(BRANCHES[lang][unit], lang)
+        )
         return
 
     if stage == "branch":
@@ -707,7 +772,6 @@ async def text_handler(message: Message):
         return
 
     if stage == "photo":
-        await message.answer(t["photo_required"], reply_markup=controls_only_keyboard(lang))
         return
 
     if stage == "consent":
@@ -726,161 +790,6 @@ async def text_handler(message: Message):
         return
 
     await message.answer(t["fallback_start"])
-
-
-@dp.message(Form.photo, F.photo)
-async def get_photo(message: Message, state: FSMContext):
-
-    data = await state.get_data()
-
-    photo = message.photo[-1]
-
-    await bot.send_photo(
-        chat_id=int(HR_CHAT_ID),
-        photo=photo.file_id,
-        caption=f"📸 Nomzod rasmi: {data.get('full_name')}"
-    )
-
-    await message.answer(
-        "✅ Anketani yuborishga rozimisiz?",
-        reply_markup=consent_keyboard()
-    )
-
-    await state.set_state(Form.consent)
-
-    await message.answer(t["consent_request"], reply_markup=consent_keyboard(lang))
-
-
-@dp.message(F.document)
-async def document_photo_handler(message: Message):
-    user_id = message.from_user.id
-    ensure_user(user_id)
-
-    if users[user_id]["stage"] != "photo":
-        return
-
-    users[user_id]["data"]["photo_file_id"] = message.document.file_id
-    users[user_id]["stage"] = "consent"
-
-    await message.answer(
-        "Анкету отправить?",
-        reply_markup=consent_keyboard()
-    )
-
-    if text in [RESTART_TEXT_RU, RESTART_TEXT_UZ]:
-        reset_user(user_id)
-        await message.answer(TEXTS["ru"]["start"], reply_markup=language_keyboard())
-        return
-
-    if text in [BACK_TEXT_RU, BACK_TEXT_UZ]:
-        await go_back(message, user_id)
-        return
-
-    if stage == "language":
-        if text == LANG_UZ:
-            users[user_id]["lang"] = "uz"
-            users[user_id]["stage"] = "unit"
-            await message.answer(TEXTS["uz"]["choose_unit"], reply_markup=main_menu_keyboard("uz"))
-            return
-        if text == LANG_RU:
-            users[user_id]["lang"] = "ru"
-            users[user_id]["stage"] = "unit"
-            await message.answer(TEXTS["ru"]["choose_unit"], reply_markup=main_menu_keyboard("ru"))
-            return
-
-        await message.answer(TEXTS["ru"]["start"], reply_markup=language_keyboard())
-        return
-
-    lang = get_lang(user_id)
-    t = TEXTS[lang]
-
-    if stage == "unit":
-        if text not in UNITS[lang]:
-            await message.answer(t["invalid_unit"], reply_markup=main_menu_keyboard(lang))
-            return
-
-        users[user_id]["data"]["unit"] = text
-        users[user_id]["stage"] = "vacancy"
-        await message.answer(t["choose_vacancy"], reply_markup=keyboard_from_options(VACANCIES[lang][text], lang))
-        return
-
-    if stage == "vacancy":
-        unit = users[user_id]["data"].get("unit")
-        allowed = VACANCIES[lang].get(unit, [])
-
-        if text not in allowed:
-            await message.answer(t["invalid_vacancy"], reply_markup=keyboard_from_options(allowed, lang))
-            return
-
-        users[user_id]["data"]["vacancy"] = text
-        users[user_id]["stage"] = "branch"
-        await message.answer(t["choose_branch"], reply_markup=keyboard_from_options(BRANCHES[lang][unit], lang))
-        return
-
-    if stage == "branch":
-        unit = users[user_id]["data"].get("unit")
-        allowed = BRANCHES[lang].get(unit, [])
-
-        if text not in allowed:
-            await message.answer(t["invalid_branch"], reply_markup=keyboard_from_options(allowed, lang))
-            return
-
-        users[user_id]["data"]["branch"] = text
-
-        branch_info = LOCATIONS.get(text, {})
-        address = branch_info.get("address_uz" if lang == "uz" else "address_ru", "-")
-        map_link = branch_info.get("map", "-")
-
-        users[user_id]["stage"] = "form"
-        users[user_id]["form_index"] = 0
-
-        await message.answer(
-            t["branch_info"].format(branch=text, address=address, map_link=map_link),
-            reply_markup=ReplyKeyboardRemove()
-        )
-        await send_form_question(message, user_id)
-        return
-
-    if stage == "form":
-        step = get_current_form_step(user_id)
-        key = step["key"]
-        options = step["options"]
-
-        if options and text not in options:
-            await message.answer(t["invalid_option"], reply_markup=keyboard_from_options(options, lang))
-            return
-
-        users[user_id]["data"][key] = text
-        users[user_id]["form_index"] += 1
-
-        if users[user_id]["form_index"] < len(TEXTS[lang]["form_steps"]):
-            await send_form_question(message, user_id)
-        else:
-            users[user_id]["stage"] = "photo"
-            await message.answer(t["photo_request"], reply_markup=controls_only_keyboard(lang))
-        return
-
-    if stage == "photo":
-        await message.answer(t["photo_required"], reply_markup=controls_only_keyboard(lang))
-        return
-
-    if stage == "consent":
-        _, _, _, consent_text = get_control_texts(lang)
-        if text != consent_text:
-            await message.answer(t["consent_invalid"], reply_markup=consent_keyboard(lang))
-            return
-
-        try:
-            await send_to_hr(users[user_id]["data"], message, lang)
-            await message.answer(t["success"], reply_markup=ReplyKeyboardRemove())
-        except Exception as e:
-            await message.answer(f"❌ Ошибка при отправке: {e}", reply_markup=ReplyKeyboardRemove())
-
-        users.pop(user_id, None)
-        return
-
-    await message.answer(t["fallback_start"])
-
 
 # =========================
 # MAIN
