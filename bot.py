@@ -751,15 +751,15 @@ async def document_photo_handler(message: Message):
     ensure_user(user_id)
 
     if users[user_id]["stage"] != "photo":
-        await message.answer("Hozir foto kerak emas.")
         return
 
     users[user_id]["data"]["photo_file_id"] = message.document.file_id
     users[user_id]["stage"] = "consent"
 
     await message.answer(
-        "Anketani yuborishni tasdiqlang:",
+        "Анкету отправить?",
         reply_markup=consent_keyboard()
+    )
     )
 
     if text in [RESTART_TEXT_RU, RESTART_TEXT_UZ]:
